@@ -1,0 +1,40 @@
+<?php
+
+declare(strict_types=1);
+
+header('Content-Type: application/json; charset=utf-8');
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, Authorization');
+
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(204);
+    exit;
+}
+
+require_once __DIR__ . '/../src/bootstrap.php';
+
+use App\Routing\Router;
+
+$router = new Router();
+
+// Auth routes
+$router->post('/api/auth/register', [App\Controllers\AuthController::class, 'register']);
+$router->post('/api/auth/login', [App\Controllers\AuthController::class, 'login']);
+$router->post('/api/auth/logout', [App\Controllers\AuthController::class, 'logout']);
+$router->get('/api/auth/me', [App\Controllers\AuthController::class, 'me']);
+
+// Admin user routes
+$router->post('/api/admin/users', [App\Controllers\AdminUserController::class, 'store'], ['admin']);
+$router->put('/api/admin/users', [App\Controllers\AdminUserController::class, 'update'], ['admin']);
+$router->get('/api/admin/users', [App\Controllers\AdminUserController::class, 'index'], ['admin']);
+$router->put('/api/admin/users/password', [App\Controllers\AdminUserController::class, 'resetPassword'], ['admin']);
+
+// Tournament routes
+$router->get('/api/tournaments', [App\Controllers\TournamentController::class, 'index']);
+$router->post('/api/admin/tournaments', [App\Controllers\TournamentController::class, 'store'], ['admin']);
+$router->put('/api/admin/tournaments', [App\Controllers\TournamentController::class, 'update'], ['admin']);
+
+// Dispatch request
+$router->dispatch($_SERVER['REQUEST_METHOD'], parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?? '/');
+

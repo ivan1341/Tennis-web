@@ -1,0 +1,54 @@
+services:
+  # Backend API (PHP + Apache)
+  web:
+    build: .
+    container_name: tennis_web_api
+    ports:
+      - "8000:80"
+    volumes:
+      - ./backend:/var/www/html
+    environment:
+      DB_HOST: db
+      DB_NAME: tennis_web
+      DB_USER: app_user
+      DB_PASS: app_password
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # MySQL
+  db:
+    image: mysql:8.0
+    container_name: tennis_db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: tennis_web
+      MYSQL_USER: app_user
+      MYSQL_PASSWORD: app_password
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./backend/sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpassword"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # phpMyAdmin (opcional, para administrar la BD)
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: tennis_phpmyadmin
+    ports:
+      - "8080:80"
+    environment:
+      PMA_HOST: db
+      MYSQL_ROOT_PASSWORD: rootpassword
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db_data:

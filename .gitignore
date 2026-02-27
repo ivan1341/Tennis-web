@@ -1,0 +1,43 @@
+# OS / Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment files
+.env
+.env.local
+.env.*.local
+frontend/.env
+backend/.env
+
+# Node / Frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.cache/
+
+# PHP / Backend
+backend/vendor/
+backend/storage/
+backend/bootstrap/cache/
+
+# Docker / local database artifacts
+db_data/
+*.sqlitedb
+*.sqlite
+
+# Coverage / test artifacts
+coverage/
+.nyc_output/
+
