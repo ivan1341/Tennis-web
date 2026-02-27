@@ -17,6 +17,12 @@ export async function getTournaments(): Promise<Tournament[]> {
   return response.tournaments;
 }
 
+export async function getTournamentById(id: number): Promise<Tournament | null> {
+  const tournaments = await getTournaments();
+  const tournament = tournaments.find((item) => item.id === id);
+  return tournament ?? null;
+}
+
 export interface CreateTournamentInput {
   name: string;
   start_date: string;

@@ -79,13 +79,16 @@ export const TournamentsPage: React.FC = () => {
                     <span className="meta-value">{tournament.rounds_count}</span>
                   </div>
                 </div>
-                {user?.role === 'admin' && (
-                  <div className="card-actions">
+                <div className="card-actions">
+                  <Link className="secondary-btn link-btn" to={`/tournaments/${tournament.id}`}>
+                    Ver detalle
+                  </Link>
+                  {user?.role === 'admin' && (
                     <Link className="secondary-btn link-btn" to={`/tournaments/${tournament.id}/edit`}>
                       Editar
                     </Link>
-                  </div>
-                )}
+                  )}
+                </div>
               </article>
             ))}
             {tournaments.length === 0 && <p>No hay torneos registrados todavía.</p>}
