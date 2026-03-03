@@ -78,12 +78,18 @@ class TournamentController
         $startDate = (string)($input['start_date'] ?? '');
         $endDate = (string)($input['end_date'] ?? '');
         $participants = (int)($input['participants_count'] ?? 0);
-        $groups = (int)($input['groups_count'] ?? 0);
+        $groups = (int)ceil($participants / 5);
         $rounds = (int)($input['rounds_count'] ?? 0);
 
         if ($name === '' || $startDate === '' || $endDate === '') {
             http_response_code(422);
             echo json_encode(['error' => 'Nombre y fechas de inicio/fin son obligatorios']);
+            return;
+        }
+
+        if ($participants < 5 || $participants % 5 !== 0) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Los participantes deben registrarse de 5 en 5 (5, 10, 15, ...)']);
             return;
         }
 
@@ -133,12 +139,18 @@ class TournamentController
         $startDate = (string)($input['start_date'] ?? '');
         $endDate = (string)($input['end_date'] ?? '');
         $participants = (int)($input['participants_count'] ?? 0);
-        $groups = (int)($input['groups_count'] ?? 0);
+        $groups = (int)ceil($participants / 5);
         $rounds = (int)($input['rounds_count'] ?? 0);
 
         if ($id <= 0 || $name === '' || $startDate === '' || $endDate === '') {
             http_response_code(422);
             echo json_encode(['error' => 'ID, nombre y fechas de inicio/fin son obligatorios']);
+            return;
+        }
+
+        if ($participants < 5 || $participants % 5 !== 0) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Los participantes deben registrarse de 5 en 5 (5, 10, 15, ...)']);
             return;
         }
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { createTournament } from '../services/tournamentService';
@@ -11,11 +11,10 @@ export const AddTournamentPage: React.FC = () => {
   const [name, setName] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [participantsCount, setParticipantsCount] = useState(0);
-  const [groupsCount, setGroupsCount] = useState(0);
-  const [roundsCount, setRoundsCount] = useState(0);
+  const [participantsCount, setParticipantsCount] = useState(5);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const groupsCount = useMemo(() => Math.ceil(participantsCount / 5), [participantsCount]);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -23,6 +22,11 @@ export const AddTournamentPage: React.FC = () => {
 
     if (!token) {
       setError('Sesión inválida. Inicia sesión nuevamente.');
+      return;
+    }
+
+    if (participantsCount < 5 || participantsCount % 5 !== 0) {
+      setError('Los participantes deben ser múltiplos de 5 (5, 10, 15, ...).');
       return;
     }
 
@@ -35,7 +39,7 @@ export const AddTournamentPage: React.FC = () => {
           end_date: endDate,
           participants_count: participantsCount,
           groups_count: groupsCount,
-          rounds_count: roundsCount
+          rounds_count: 0
         },
         token
       );
@@ -79,7 +83,8 @@ export const AddTournamentPage: React.FC = () => {
             Participantes
             <input
               type="number"
-              min={0}
+              min={5}
+              step={5}
               value={participantsCount}
               onChange={(e) => setParticipantsCount(Number(e.target.value))}
               required
@@ -90,21 +95,9 @@ export const AddTournamentPage: React.FC = () => {
             Grupos
             <input
               type="number"
-              min={0}
+              min={1}
               value={groupsCount}
-              onChange={(e) => setGroupsCount(Number(e.target.value))}
-              required
-            />
-          </label>
-
-          <label>
-            Rondas
-            <input
-              type="number"
-              min={0}
-              value={roundsCount}
-              onChange={(e) => setRoundsCount(Number(e.target.value))}
-              required
+              readOnly
             />
           </label>
 

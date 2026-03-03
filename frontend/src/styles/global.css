@@ -371,6 +371,25 @@ a {
   max-width: 140px;
 }
 
+.round-dates {
+  margin: 0.75rem 0 0;
+  font-size: 0.9rem;
+}
+
+.round-create-form {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.round-create-form h3 {
+  margin-top: 0;
+}
+
+.round-create-form .secondary-btn {
+  width: auto;
+}
+
 .round-title {
   margin: 0.25rem 0;
   color: #00394d;

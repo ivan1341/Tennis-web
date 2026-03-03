@@ -60,3 +60,15 @@ CREATE TABLE IF NOT EXISTS match_results (
     CONSTRAINT uq_match_results_unique_match UNIQUE (tournament_id, round_number, group_number, player_one_id, player_two_id)
 );
 
+CREATE TABLE IF NOT EXISTS tournament_rounds (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    tournament_id INT UNSIGNED NOT NULL,
+    round_number INT UNSIGNED NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    created_at TIMESTAMP NULL DEFAULT NULL,
+    updated_at TIMESTAMP NULL DEFAULT NULL,
+    CONSTRAINT fk_tournament_rounds_tournament_id FOREIGN KEY (tournament_id) REFERENCES tournaments(id) ON DELETE CASCADE,
+    CONSTRAINT uq_tournament_rounds_tournament_round UNIQUE (tournament_id, round_number)
+);
+

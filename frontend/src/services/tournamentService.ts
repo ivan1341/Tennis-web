@@ -30,6 +30,14 @@ export interface MatchResult {
   player_two_name: string;
 }
 
+export interface TournamentRound {
+  id: number;
+  tournament_id: number;
+  round_number: number;
+  start_date: string;
+  end_date: string;
+}
+
 export async function getTournaments(): Promise<Tournament[]> {
   const response = await apiFetch<{ tournaments: Tournament[] }>('/api/tournaments', {
     method: 'GET'
@@ -49,6 +57,14 @@ export async function getTournamentPlayers(tournamentId: number): Promise<Tourna
     { method: 'GET' }
   );
   return response.players;
+}
+
+export async function getTournamentRounds(tournamentId: number): Promise<TournamentRound[]> {
+  const response = await apiFetch<{ rounds: TournamentRound[] }>(
+    `/api/tournament-rounds?tournament_id=${tournamentId}`,
+    { method: 'GET' }
+  );
+  return response.rounds;
 }
 
 export async function getMatchResults(tournamentId: number, roundNumber: number): Promise<MatchResult[]> {
@@ -75,6 +91,21 @@ export async function saveMatchResult(input: SaveMatchResultInput, token: string
     token,
     body: JSON.stringify(input)
   });
+}
+
+export interface CreateTournamentRoundInput {
+  tournament_id: number;
+  start_date: string;
+  end_date: string;
+}
+
+export async function createTournamentRound(input: CreateTournamentRoundInput, token: string): Promise<TournamentRound> {
+  const response = await apiFetch<{ round: TournamentRound }>('/api/admin/tournament-rounds', {
+    method: 'POST',
+    token,
+    body: JSON.stringify(input)
+  });
+  return response.round;
 }
 
 export interface CreateTournamentInput {

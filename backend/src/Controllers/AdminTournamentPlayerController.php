@@ -78,6 +78,54 @@ class AdminTournamentPlayerController
         );
 
         foreach ($tournamentIds as $tournamentId) {
+            $stmtTournament = $pdo->prepare('SELECT groups_count FROM tournaments WHERE id = :id');
+            $stmtTournament->execute(['id' => $tournamentId]);
+            $tournament = $stmtTournament->fetch(PDO::FETCH_ASSOC);
+
+            if (!$tournament) {
+                http_response_code(404);
+                echo json_encode(['error' => 'Torneo no encontrado']);
+                return;
+            }
+
+            $groupsCount = (int)($tournament['groups_count'] ?? 0);
+            if ($groupNumber > $groupsCount) {
+                http_response_code(422);
+                echo json_encode(['error' => 'El grupo seleccionado no existe en uno de los torneos']);
+                return;
+            }
+
+            $stmtCurrent = $pdo->prepare(
+                'SELECT group_number
+                 FROM tournament_players
+                 WHERE tournament_id = :tournament_id AND user_id = :user_id'
+            );
+            $stmtCurrent->execute([
+                'tournament_id' => $tournamentId,
+                'user_id' => $userId,
+            ]);
+            $currentGroup = (int)($stmtCurrent->fetch(PDO::FETCH_ASSOC)['group_number'] ?? 0);
+
+            if ($currentGroup !== $groupNumber) {
+                $stmtGroupSize = $pdo->prepare(
+                    'SELECT COUNT(*) AS total
+                     FROM tournament_players
+                     WHERE tournament_id = :tournament_id
+                       AND group_number = :group_number'
+                );
+                $stmtGroupSize->execute([
+                    'tournament_id' => $tournamentId,
+                    'group_number' => $groupNumber,
+                ]);
+
+                $groupSize = (int)($stmtGroupSize->fetch(PDO::FETCH_ASSOC)['total'] ?? 0);
+                if ($groupSize >= 5) {
+                    http_response_code(422);
+                    echo json_encode(['error' => 'Cada grupo puede tener máximo 5 jugadores']);
+                    return;
+                }
+            }
+
             $stmt->execute([
                 'tournament_id' => $tournamentId,
                 'user_id' => $userId,

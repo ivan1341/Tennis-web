@@ -2,13 +2,16 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
+  createTournamentRound,
   getMatchResults,
   getTournamentById,
   getTournamentPlayers,
+  getTournamentRounds,
   saveMatchResult,
   type MatchResult,
   type Tournament,
-  type TournamentAssignedPlayer
+  type TournamentAssignedPlayer,
+  type TournamentRound
 } from '../services/tournamentService';
 import { AppHeader } from '../components/AppHeader';
 
@@ -45,8 +48,8 @@ const buildGroups = (tournament: Tournament, assignedPlayers: TournamentAssigned
   const maxAssignedInGroup = groupedPlayers.reduce((max, players) => Math.max(max, players.length), 0);
   const playersPerGroup = Math.max(
     2,
-    Math.ceil((tournament.participants_count || groupsCount * 2) / groupsCount),
-    maxAssignedInGroup
+    maxAssignedInGroup,
+    Math.min(5, Math.ceil((tournament.participants_count || groupsCount * 2) / groupsCount))
   );
 
   return Array.from({ length: groupsCount }, (_, groupIndex) => ({
@@ -88,11 +91,14 @@ export const TournamentDetailViewPage: React.FC = () => {
 
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [assignedPlayers, setAssignedPlayers] = useState<TournamentAssignedPlayer[]>([]);
+  const [rounds, setRounds] = useState<TournamentRound[]>([]);
   const [matchResults, setMatchResults] = useState<MatchResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [selectedRound, setSelectedRound] = useState<number>(1);
+  const [selectedRound, setSelectedRound] = useState<number | null>(null);
+  const [newRoundStartDate, setNewRoundStartDate] = useState('');
+  const [newRoundEndDate, setNewRoundEndDate] = useState('');
   const [resultDrafts, setResultDrafts] = useState<Record<string, { scoreOne: string; scoreTwo: string }>>({});
 
   useEffect(() => {
@@ -116,9 +122,11 @@ export const TournamentDetailViewPage: React.FC = () => {
           return;
         }
 
+        const roundsData = await getTournamentRounds(data.id);
         setTournament(data);
         setAssignedPlayers(players);
-        setSelectedRound(1);
+        setRounds(roundsData);
+        setSelectedRound(roundsData.length > 0 ? roundsData[0].round_number : null);
       } catch (err) {
         setError((err as Error).message);
       } finally {
@@ -131,7 +139,10 @@ export const TournamentDetailViewPage: React.FC = () => {
 
   useEffect(() => {
     const loadResults = async () => {
-      if (!tournament) return;
+      if (!tournament || selectedRound === null) {
+        setMatchResults([]);
+        return;
+      }
       try {
         const results = await getMatchResults(tournament.id, selectedRound);
         setMatchResults(results);
@@ -142,6 +153,48 @@ export const TournamentDetailViewPage: React.FC = () => {
 
     void loadResults();
   }, [tournament, selectedRound]);
+
+  const handleCreateRound = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError(null);
+    setSuccess(null);
+
+    if (!token || !tournament) {
+      setError('Sesión inválida. Inicia sesión nuevamente.');
+      return;
+    }
+
+    if (newRoundStartDate === '' || newRoundEndDate === '') {
+      setError('Debes elegir fecha inicio y fecha fin para la ronda.');
+      return;
+    }
+
+    if (newRoundStartDate > newRoundEndDate) {
+      setError('La fecha inicio no puede ser mayor a la fecha fin.');
+      return;
+    }
+
+    try {
+      const createdRound = await createTournamentRound(
+        {
+          tournament_id: tournament.id,
+          start_date: newRoundStartDate,
+          end_date: newRoundEndDate
+        },
+        token
+      );
+
+      const nextRounds = [...rounds, createdRound].sort((a, b) => a.round_number - b.round_number);
+      setRounds(nextRounds);
+      setTournament({ ...tournament, rounds_count: nextRounds.length });
+      setSelectedRound(createdRound.round_number);
+      setNewRoundStartDate('');
+      setNewRoundEndDate('');
+      setSuccess('Ronda creada correctamente');
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
 
   const getDraftForMatch = (playerOneId: number, playerTwoId: number): { scoreOne: string; scoreTwo: string } => {
     const key = getPairKey(playerOneId, playerTwoId);
@@ -162,7 +215,7 @@ export const TournamentDetailViewPage: React.FC = () => {
   };
 
   const handleSaveMatch = async (groupNumber: number, playerOneId: number, playerTwoId: number) => {
-    if (!token || !tournament) {
+    if (!token || !tournament || selectedRound === null) {
       setError('Sesión inválida. Inicia sesión nuevamente.');
       return;
     }
@@ -226,7 +279,7 @@ export const TournamentDetailViewPage: React.FC = () => {
   }
 
   const groups = buildGroups(tournament, assignedPlayers);
-  const roundsCount = Math.max(1, tournament.rounds_count || 1);
+  const selectedRoundData = rounds.find((round) => round.round_number === selectedRound) ?? null;
 
   return (
     <div className="app-shell">
@@ -254,26 +307,69 @@ export const TournamentDetailViewPage: React.FC = () => {
           </div>
           <div className="round-selector">
             <label htmlFor="round-select">Ronda</label>
-            <select id="round-select" value={selectedRound} onChange={(event) => setSelectedRound(Number(event.target.value))}>
-              {Array.from({ length: roundsCount }, (_, idx) => (
-                <option key={idx + 1} value={idx + 1}>
-                  {idx + 1}
-                </option>
-              ))}
+            <select
+              id="round-select"
+              value={selectedRound ?? ''}
+              onChange={(event) => setSelectedRound(Number(event.target.value))}
+              disabled={rounds.length === 0}
+            >
+              {rounds.length === 0 ? (
+                <option value="">Sin rondas</option>
+              ) : (
+                rounds.map((round) => (
+                  <option key={round.id} value={round.round_number}>
+                    {round.round_number}
+                  </option>
+                ))
+              )}
             </select>
           </div>
+          {selectedRoundData && (
+            <p className="round-dates">
+              Ronda {selectedRoundData.round_number}: {selectedRoundData.start_date} - {selectedRoundData.end_date}
+            </p>
+          )}
+          {user?.role === 'admin' && (
+            <form className="round-create-form" onSubmit={handleCreateRound}>
+              <h3>Crear ronda</h3>
+              <label>
+                Fecha inicio
+                <input
+                  type="date"
+                  value={newRoundStartDate}
+                  onChange={(event) => setNewRoundStartDate(event.target.value)}
+                  required
+                />
+              </label>
+              <label>
+                Fecha fin
+                <input
+                  type="date"
+                  value={newRoundEndDate}
+                  onChange={(event) => setNewRoundEndDate(event.target.value)}
+                  required
+                />
+              </label>
+              <button type="submit" className="secondary-btn">
+                Crear ronda
+              </button>
+            </form>
+          )}
         </section>
 
         {error && <p className="error-text">{error}</p>}
         {success && <p className="success-text">{success}</p>}
 
-        <h3 className="round-title">Round {selectedRound}</h3>
+        <h3 className="round-title">Ronda {selectedRound ?? '-'}</h3>
 
-        {groups.map((group) => {
-          const groupMatches = buildGroupMatches(group);
+        {selectedRound === null ? (
+          <p className="muted">No hay rondas creadas todavía.</p>
+        ) : (
+          groups.map((group) => {
+            const groupMatches = buildGroupMatches(group);
 
-          return (
-            <section key={group.name} className="card detail-group-card">
+            return (
+              <section key={group.name} className="card detail-group-card">
               <h3>{group.name}</h3>
               <div className="detail-table-wrapper">
                 <table className="detail-round-table">
@@ -384,9 +480,10 @@ export const TournamentDetailViewPage: React.FC = () => {
                   </table>
                 </div>
               )}
-            </section>
-          );
-        })}
+              </section>
+            );
+          })
+        )}
 
         <p className="muted">
           <Link to="/tournaments">Volver a torneos</Link>

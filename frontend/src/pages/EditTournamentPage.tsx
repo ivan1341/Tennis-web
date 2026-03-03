@@ -14,7 +14,6 @@ export const EditTournamentPage: React.FC = () => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [participantsCount, setParticipantsCount] = useState(0);
-  const [groupsCount, setGroupsCount] = useState(0);
   const [roundsCount, setRoundsCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [loadingInitial, setLoadingInitial] = useState(true);
@@ -38,7 +37,6 @@ export const EditTournamentPage: React.FC = () => {
         setStartDate(current.start_date);
         setEndDate(current.end_date);
         setParticipantsCount(current.participants_count);
-        setGroupsCount(current.groups_count);
         setRoundsCount(current.rounds_count);
       } catch (err) {
         setError((err as Error).message);
@@ -55,12 +53,19 @@ export const EditTournamentPage: React.FC = () => {
     }
   }, [tournamentId]);
 
+  const groupsCount = useMemo(() => Math.max(1, Math.ceil(participantsCount / 5)), [participantsCount]);
+
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
 
     if (!token) {
       setError('Sesión inválida. Inicia sesión nuevamente.');
+      return;
+    }
+
+    if (participantsCount < 5 || participantsCount % 5 !== 0) {
+      setError('Los participantes deben ser múltiplos de 5 (5, 10, 15, ...).');
       return;
     }
 
@@ -121,7 +126,8 @@ export const EditTournamentPage: React.FC = () => {
               Participantes
               <input
                 type="number"
-                min={0}
+                min={5}
+                step={5}
                 value={participantsCount}
                 onChange={(e) => setParticipantsCount(Number(e.target.value))}
                 required
@@ -132,21 +138,9 @@ export const EditTournamentPage: React.FC = () => {
               Grupos
               <input
                 type="number"
-                min={0}
+                min={1}
                 value={groupsCount}
-                onChange={(e) => setGroupsCount(Number(e.target.value))}
-                required
-              />
-            </label>
-
-            <label>
-              Rondas
-              <input
-                type="number"
-                min={0}
-                value={roundsCount}
-                onChange={(e) => setRoundsCount(Number(e.target.value))}
-                required
+                readOnly
               />
             </label>
 
