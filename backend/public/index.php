@@ -32,8 +32,12 @@ $router->put('/api/admin/users/password', [App\Controllers\AdminUserController::
 
 // Tournament routes
 $router->get('/api/tournaments', [App\Controllers\TournamentController::class, 'index']);
+$router->get('/api/tournament-players', [App\Controllers\TournamentController::class, 'players']);
+$router->get('/api/match-results', [App\Controllers\MatchResultController::class, 'index']);
+$router->post('/api/match-results', [App\Controllers\MatchResultController::class, 'save']);
 $router->post('/api/admin/tournaments', [App\Controllers\TournamentController::class, 'store'], ['admin']);
 $router->put('/api/admin/tournaments', [App\Controllers\TournamentController::class, 'update'], ['admin']);
+$router->post('/api/admin/tournament-players', [App\Controllers\AdminTournamentPlayerController::class, 'assignMany'], ['admin']);
 
 // Dispatch request
 $router->dispatch($_SERVER['REQUEST_METHOD'], parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?? '/');

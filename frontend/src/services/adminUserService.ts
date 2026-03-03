@@ -57,3 +57,20 @@ export async function resetUserPassword(
   });
 }
 
+export async function assignUserToTournaments(
+  userId: number,
+  tournamentIds: number[],
+  groupNumber: number,
+  token: string
+): Promise<void> {
+  await apiFetch<{ message: string }>('/api/admin/tournament-players', {
+    method: 'POST',
+    token,
+    body: JSON.stringify({
+      user_id: userId,
+      tournament_ids: tournamentIds,
+      group_number: groupNumber
+    })
+  });
+}
+

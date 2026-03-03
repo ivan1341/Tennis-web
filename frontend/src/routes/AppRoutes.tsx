@@ -3,7 +3,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { LoginPage } from '../pages/LoginPage';
 import { RegisterPage } from '../pages/RegisterPage';
 import { TournamentsPage } from '../pages/TournamentsPage';
-import { TournamentDetailPage } from '../pages/TournamentDetailPage';
+import { TournamentDetailViewPage } from '../pages/TournamentDetailViewPage';
 import { AddTournamentPage } from '../pages/AddTournamentPage';
 import { EditTournamentPage } from '../pages/EditTournamentPage';
 import { AdminUsersPage } from '../pages/AdminUsersPage';
@@ -55,7 +55,7 @@ export const AppRoutes: React.FC = () => {
         path="/tournaments/:id"
         element={
           <PrivateRoute>
-            <TournamentDetailPage />
+            <TournamentDetailViewPage />
           </PrivateRoute>
         }
       />

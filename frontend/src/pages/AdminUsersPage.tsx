@@ -2,16 +2,20 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
+  assignUserToTournaments,
   createAdminUser,
   getAdminUsers,
   resetUserPassword,
   updateAdminUser,
   type AdminUser
 } from '../services/adminUserService';
+import { getTournaments, type Tournament } from '../services/tournamentService';
+import { AppHeader } from '../components/AppHeader';
 
 export const AdminUsersPage: React.FC = () => {
-  const { user, token, logout } = useAuth();
+  const { token } = useAuth();
   const [users, setUsers] = useState<AdminUser[]>([]);
+  const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -27,6 +31,8 @@ export const AdminUsersPage: React.FC = () => {
   const [editPhone, setEditPhone] = useState('');
   const [editRole, setEditRole] = useState<'admin' | 'user'>('user');
   const [editPassword, setEditPassword] = useState('');
+  const [assignTournamentIds, setAssignTournamentIds] = useState<number[]>([]);
+  const [assignGroupNumber, setAssignGroupNumber] = useState(1);
 
   const loadUsers = async () => {
     if (!token) {
@@ -49,6 +55,18 @@ export const AdminUsersPage: React.FC = () => {
     void loadUsers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  useEffect(() => {
+    const loadTournaments = async () => {
+      try {
+        const list = await getTournaments();
+        setTournaments(list);
+      } catch {
+        // ignore tournaments errors here; main feedback goes in save action
+      }
+    };
+    void loadTournaments();
+  }, []);
 
   const handleCreateUser = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -79,6 +97,8 @@ export const AdminUsersPage: React.FC = () => {
     setEditPhone(selectedUser.phone);
     setEditRole(selectedUser.role);
     setEditPassword('');
+    setAssignTournamentIds([]);
+    setAssignGroupNumber(1);
     setModalOpen(true);
   };
 
@@ -86,6 +106,8 @@ export const AdminUsersPage: React.FC = () => {
     setModalOpen(false);
     setEditingUserId(null);
     setEditPassword('');
+    setAssignTournamentIds([]);
+    setAssignGroupNumber(1);
   };
 
   const handleSaveUser = async (event: React.FormEvent) => {
@@ -118,6 +140,10 @@ export const AdminUsersPage: React.FC = () => {
         await resetUserPassword(editingUserId, editPassword, token);
       }
 
+      if (assignTournamentIds.length > 0) {
+        await assignUserToTournaments(editingUserId, assignTournamentIds, assignGroupNumber, token);
+      }
+
       setSuccess('Usuario actualizado correctamente');
       closeModal();
       await loadUsers();
@@ -128,23 +154,7 @@ export const AdminUsersPage: React.FC = () => {
 
   return (
     <div className="app-shell">
-      <header className="app-header">
-        <div className="app-header-left">
-          <h1>Administrar usuarios</h1>
-        </div>
-        <div className="app-header-right">
-          {user && (
-            <>
-              <span className="user-label">
-                {user.name} ({user.role === 'admin' ? 'Admin' : 'Usuario'})
-              </span>
-              <button className="secondary-btn" onClick={logout}>
-                Cerrar sesión
-              </button>
-            </>
-          )}
-        </div>
-      </header>
+      <AppHeader title="Administrar usuarios" />
 
       <main className="app-main admin-users-layout">
         <section className="card">
@@ -273,6 +283,34 @@ export const AdminUsersPage: React.FC = () => {
                   value={editPassword}
                   onChange={(e) => setEditPassword(e.target.value)}
                   placeholder="Solo si deseas resetearla"
+                />
+              </label>
+
+              <label>
+                Torneos a asignar (opcional)
+                <select
+                  multiple
+                  value={assignTournamentIds.map(String)}
+                  onChange={(e) => {
+                    const values = Array.from(e.target.selectedOptions).map((opt) => Number(opt.value));
+                    setAssignTournamentIds(values);
+                  }}
+                >
+                  {tournaments.map((tournament) => (
+                    <option key={tournament.id} value={tournament.id}>
+                      {tournament.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                Grupo para asignación
+                <input
+                  type="number"
+                  min={1}
+                  value={assignGroupNumber}
+                  onChange={(e) => setAssignGroupNumber(Number(e.target.value))}
                 />
               </label>
 

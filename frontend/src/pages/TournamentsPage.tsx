@@ -2,9 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { getTournaments, type Tournament } from '../services/tournamentService';
+import { AppHeader } from '../components/AppHeader';
 
 export const TournamentsPage: React.FC = () => {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -27,33 +28,7 @@ export const TournamentsPage: React.FC = () => {
 
   return (
     <div className="app-shell">
-      <header className="app-header">
-        <div className="app-header-left">
-          <h1>Torneos</h1>
-        </div>
-        <div className="app-header-right">
-          {user && (
-            <>
-              <span className="user-label">
-                {user.name} ({user.role === 'admin' ? 'Admin' : 'Usuario'})
-              </span>
-              <button className="secondary-btn" onClick={logout}>
-                Cerrar sesión
-              </button>
-              {user.role === 'admin' && (
-                <>
-                  <Link className="secondary-btn link-btn" to="/tournaments/new">
-                    Agregar torneo
-                  </Link>
-                  <Link className="secondary-btn link-btn" to="/admin/users">
-                    Usuarios
-                  </Link>
-                </>
-              )}
-            </>
-          )}
-        </div>
-      </header>
+      <AppHeader title="Torneos" />
       <main className="app-main">
         {loading && <p>Cargando torneos...</p>}
         {error && <p className="error-text">{error}</p>}

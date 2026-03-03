@@ -40,6 +40,32 @@ class TournamentController
     /**
      * @param array<string, mixed> $input
      */
+    public function players(array $input): void
+    {
+        $tournamentId = (int)($_GET['tournament_id'] ?? 0);
+        if ($tournamentId <= 0) {
+            http_response_code(422);
+            echo json_encode(['error' => 'tournament_id es obligatorio']);
+            return;
+        }
+
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare(
+            'SELECT tp.tournament_id, tp.user_id, tp.group_number, u.name
+             FROM tournament_players tp
+             INNER JOIN users u ON u.id = tp.user_id
+             WHERE tp.tournament_id = :tournament_id
+             ORDER BY tp.group_number ASC, u.name ASC'
+        );
+        $stmt->execute(['tournament_id' => $tournamentId]);
+
+        http_response_code(200);
+        echo json_encode(['players' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+    }
+
+    /**
+     * @param array<string, mixed> $input
+     */
     public function store(array $input): void
     {
         if ($this->user === null || ($this->user['role'] ?? null) !== 'admin') {

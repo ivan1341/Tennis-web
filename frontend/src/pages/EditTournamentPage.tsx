@@ -2,11 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { getTournaments, updateTournament } from '../services/tournamentService';
+import { AppHeader } from '../components/AppHeader';
 
 export const EditTournamentPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const tournamentId = useMemo(() => Number(id), [id]);
-  const { user, token, logout } = useAuth();
+  const { token } = useAuth();
   const navigate = useNavigate();
 
   const [name, setName] = useState('');
@@ -87,23 +88,7 @@ export const EditTournamentPage: React.FC = () => {
 
   return (
     <div className="app-shell">
-      <header className="app-header">
-        <div className="app-header-left">
-          <h1>Editar torneo</h1>
-        </div>
-        <div className="app-header-right">
-          {user && (
-            <>
-              <span className="user-label">
-                {user.name} ({user.role === 'admin' ? 'Admin' : 'Usuario'})
-              </span>
-              <button className="secondary-btn" onClick={logout}>
-                Cerrar sesión
-              </button>
-            </>
-          )}
-        </div>
-      </header>
+      <AppHeader title="Editar torneo" />
 
       <main className="app-main centered">
         {loadingInitial ? (

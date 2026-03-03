@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { createTournament } from '../services/tournamentService';
+import { AppHeader } from '../components/AppHeader';
 
 export const AddTournamentPage: React.FC = () => {
-  const { user, token, logout } = useAuth();
+  const { token } = useAuth();
   const navigate = useNavigate();
 
   const [name, setName] = useState('');
@@ -48,23 +49,7 @@ export const AddTournamentPage: React.FC = () => {
 
   return (
     <div className="app-shell">
-      <header className="app-header">
-        <div className="app-header-left">
-          <h1>Agregar torneo</h1>
-        </div>
-        <div className="app-header-right">
-          {user && (
-            <>
-              <span className="user-label">
-                {user.name} ({user.role === 'admin' ? 'Admin' : 'Usuario'})
-              </span>
-              <button className="secondary-btn" onClick={logout}>
-                Cerrar sesión
-              </button>
-            </>
-          )}
-        </div>
-      </header>
+      <AppHeader title="Agregar torneo" />
 
       <main className="app-main centered">
         <form className="card form-card" onSubmit={handleSubmit}>
