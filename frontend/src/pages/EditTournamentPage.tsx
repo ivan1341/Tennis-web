@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getTournaments, updateTournament } from '../services/tournamentService';
+import { createTournamentRound, getTournaments, updateTournament } from '../services/tournamentService';
 import { AppHeader } from '../components/AppHeader';
 
 export const EditTournamentPage: React.FC = () => {
@@ -15,9 +15,13 @@ export const EditTournamentPage: React.FC = () => {
   const [endDate, setEndDate] = useState('');
   const [participantsCount, setParticipantsCount] = useState(0);
   const [roundsCount, setRoundsCount] = useState(0);
+  const [newRoundStartDate, setNewRoundStartDate] = useState('');
+  const [newRoundEndDate, setNewRoundEndDate] = useState('');
   const [loading, setLoading] = useState(false);
+  const [creatingRound, setCreatingRound] = useState(false);
   const [loadingInitial, setLoadingInitial] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     const loadTournament = async () => {
@@ -58,6 +62,7 @@ export const EditTournamentPage: React.FC = () => {
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
+    setSuccess(null);
 
     if (!token) {
       setError('Sesión inválida. Inicia sesión nuevamente.');
@@ -91,6 +96,51 @@ export const EditTournamentPage: React.FC = () => {
     }
   };
 
+  const handleCreateRound = async () => {
+    setError(null);
+    setSuccess(null);
+
+    if (!token) {
+      setError('Sesión inválida. Inicia sesión nuevamente.');
+      return;
+    }
+
+    if (newRoundStartDate === '' || newRoundEndDate === '') {
+      setError('Debes elegir fecha inicio y fecha fin para la ronda.');
+      return;
+    }
+
+    if (newRoundStartDate > newRoundEndDate) {
+      setError('La fecha inicio no puede ser mayor a la fecha fin.');
+      return;
+    }
+
+    if (newRoundStartDate < startDate || newRoundEndDate > endDate) {
+      setError('Las fechas de la ronda deben estar dentro de las fechas del torneo.');
+      return;
+    }
+
+    setCreatingRound(true);
+    try {
+      await createTournamentRound(
+        {
+          tournament_id: tournamentId,
+          start_date: newRoundStartDate,
+          end_date: newRoundEndDate
+        },
+        token
+      );
+      setRoundsCount((prev) => prev + 1);
+      setNewRoundStartDate('');
+      setNewRoundEndDate('');
+      setSuccess('Ronda creada correctamente.');
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setCreatingRound(false);
+    }
+  };
+
   return (
     <div className="app-shell">
       <AppHeader title="Editar torneo" />
@@ -100,7 +150,7 @@ export const EditTournamentPage: React.FC = () => {
           <p>Cargando torneo...</p>
         ) : (
           <form className="card form-card" onSubmit={handleSubmit}>
-            <h2>Editar torneo #{tournamentId}</h2>
+            <h2>Editar torneo #{name}</h2>
 
             <label>
               Nombre del torneo
@@ -144,11 +194,40 @@ export const EditTournamentPage: React.FC = () => {
               />
             </label>
 
+            <label>
+              Rondas actuales
+              <input type="number" min={0} value={roundsCount} readOnly />
+            </label>
+
             {error && <p className="error-text">{error}</p>}
+            {success && <p className="success-text">{success}</p>}
 
             <button type="submit" className="primary-btn" disabled={loading}>
               {loading ? 'Guardando...' : 'Actualizar torneo'}
             </button>
+
+            <div className="round-create-form">
+              <h3>Crear nueva ronda</h3>
+              <label>
+                Fecha inicio
+                <input
+                  type="date"
+                  value={newRoundStartDate}
+                  onChange={(event) => setNewRoundStartDate(event.target.value)}
+                />
+              </label>
+              <label>
+                Fecha fin
+                <input
+                  type="date"
+                  value={newRoundEndDate}
+                  onChange={(event) => setNewRoundEndDate(event.target.value)}
+                />
+              </label>
+              <button type="button" className="secondary-btn" disabled={creatingRound} onClick={() => void handleCreateRound()}>
+                {creatingRound ? 'Creando...' : 'Crear ronda'}
+              </button>
+            </div>
 
             <p className="muted">
               <Link to="/tournaments">Volver a torneos</Link>

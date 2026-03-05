@@ -24,8 +24,13 @@ export interface MatchResult {
   group_number: number;
   player_one_id: number;
   player_two_id: number;
-  player_one_score: number;
-  player_two_score: number;
+  set1_player_one_games: number;
+  set1_player_two_games: number;
+  set2_player_one_games: number;
+  set2_player_two_games: number;
+  set3_player_one_games: number;
+  set3_player_two_games: number;
+  is_walkover: boolean;
   player_one_name: string;
   player_two_name: string;
 }
@@ -81,8 +86,13 @@ export interface SaveMatchResultInput {
   group_number: number;
   player_one_id: number;
   player_two_id: number;
-  player_one_score: number;
-  player_two_score: number;
+  set1_player_one_games: number;
+  set1_player_two_games: number;
+  set2_player_one_games: number;
+  set2_player_two_games: number;
+  set3_player_one_games: number;
+  set3_player_two_games: number;
+  is_walkover: boolean;
 }
 
 export async function saveMatchResult(input: SaveMatchResultInput, token: string): Promise<void> {
@@ -114,7 +124,8 @@ export interface CreateTournamentInput {
   end_date: string;
   participants_count: number;
   groups_count: number;
-  rounds_count: number;
+  round_start_date: string;
+  round_end_date: string;
 }
 
 export async function createTournament(
@@ -129,8 +140,14 @@ export async function createTournament(
   return response.tournament;
 }
 
-export interface UpdateTournamentInput extends CreateTournamentInput {
+export interface UpdateTournamentInput {
   id: number;
+  name: string;
+  start_date: string;
+  end_date: string;
+  participants_count: number;
+  groups_count: number;
+  rounds_count: number;
 }
 
 export async function updateTournament(

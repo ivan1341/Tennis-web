@@ -37,7 +37,11 @@ class MatchResultController
         $pdo = Database::getConnection();
         $stmt = $pdo->prepare(
             'SELECT mr.id, mr.tournament_id, mr.round_number, mr.group_number,
-                    mr.player_one_id, mr.player_two_id, mr.player_one_score, mr.player_two_score,
+                    mr.player_one_id, mr.player_two_id,
+                    mr.set1_player_one_games, mr.set1_player_two_games,
+                    mr.set2_player_one_games, mr.set2_player_two_games,
+                    mr.set3_player_one_games, mr.set3_player_two_games,
+                    mr.is_walkover,
                     p1.name AS player_one_name, p2.name AS player_two_name
              FROM match_results mr
              INNER JOIN users p1 ON p1.id = mr.player_one_id
@@ -70,8 +74,13 @@ class MatchResultController
         $groupNumber = (int)($input['group_number'] ?? 0);
         $playerOneId = (int)($input['player_one_id'] ?? 0);
         $playerTwoId = (int)($input['player_two_id'] ?? 0);
-        $playerOneScore = (int)($input['player_one_score'] ?? -1);
-        $playerTwoScore = (int)($input['player_two_score'] ?? -1);
+        $set1PlayerOneGames = (int)($input['set1_player_one_games'] ?? -1);
+        $set1PlayerTwoGames = (int)($input['set1_player_two_games'] ?? -1);
+        $set2PlayerOneGames = (int)($input['set2_player_one_games'] ?? -1);
+        $set2PlayerTwoGames = (int)($input['set2_player_two_games'] ?? -1);
+        $set3PlayerOneGames = (int)($input['set3_player_one_games'] ?? -1);
+        $set3PlayerTwoGames = (int)($input['set3_player_two_games'] ?? -1);
+        $isWalkover = filter_var($input['is_walkover'] ?? false, FILTER_VALIDATE_BOOLEAN) ? 1 : 0;
 
         if ($tournamentId <= 0 || $roundNumber <= 0 || $groupNumber <= 0 || $playerOneId <= 0 || $playerTwoId <= 0) {
             http_response_code(422);
@@ -85,9 +94,50 @@ class MatchResultController
             return;
         }
 
-        if ($playerOneScore < 0 || $playerTwoScore < 0) {
+        if (
+            $set1PlayerOneGames < 0 || $set1PlayerTwoGames < 0 ||
+            $set2PlayerOneGames < 0 || $set2PlayerTwoGames < 0 ||
+            $set3PlayerOneGames < 0 || $set3PlayerTwoGames < 0
+        ) {
             http_response_code(422);
             echo json_encode(['error' => 'Los resultados deben ser números positivos']);
+            return;
+        }
+
+        if ($set1PlayerOneGames === $set1PlayerTwoGames || $set2PlayerOneGames === $set2PlayerTwoGames) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Set 1 y Set 2 deben tener ganador']);
+            return;
+        }
+
+        // Set 3 is optional: 0-0 means not played.
+        if ($set3PlayerOneGames === $set3PlayerTwoGames && $set3PlayerOneGames !== 0) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Set 3 debe tener ganador o quedar en 0-0']);
+            return;
+        }
+
+        $playerOneSetsWon = 0;
+        $playerTwoSetsWon = 0;
+        $setPairs = [
+            [$set1PlayerOneGames, $set1PlayerTwoGames],
+            [$set2PlayerOneGames, $set2PlayerTwoGames],
+            [$set3PlayerOneGames, $set3PlayerTwoGames],
+        ];
+        foreach ($setPairs as [$gamesOne, $gamesTwo]) {
+            if ($gamesOne === 0 && $gamesTwo === 0) {
+                continue;
+            }
+            if ($gamesOne > $gamesTwo) {
+                $playerOneSetsWon += 1;
+            } elseif ($gamesTwo > $gamesOne) {
+                $playerTwoSetsWon += 1;
+            }
+        }
+
+        if ($playerOneSetsWon === $playerTwoSetsWon) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Debe existir un ganador en sets']);
             return;
         }
 
@@ -103,8 +153,12 @@ class MatchResultController
         $orderedPlayerOne = min($playerOneId, $playerTwoId);
         $orderedPlayerTwo = max($playerOneId, $playerTwoId);
 
-        $normalizedPlayerOneScore = $orderedPlayerOne === $playerOneId ? $playerOneScore : $playerTwoScore;
-        $normalizedPlayerTwoScore = $orderedPlayerTwo === $playerTwoId ? $playerTwoScore : $playerOneScore;
+        $normalizedSet1PlayerOneGames = $orderedPlayerOne === $playerOneId ? $set1PlayerOneGames : $set1PlayerTwoGames;
+        $normalizedSet1PlayerTwoGames = $orderedPlayerTwo === $playerTwoId ? $set1PlayerTwoGames : $set1PlayerOneGames;
+        $normalizedSet2PlayerOneGames = $orderedPlayerOne === $playerOneId ? $set2PlayerOneGames : $set2PlayerTwoGames;
+        $normalizedSet2PlayerTwoGames = $orderedPlayerTwo === $playerTwoId ? $set2PlayerTwoGames : $set2PlayerOneGames;
+        $normalizedSet3PlayerOneGames = $orderedPlayerOne === $playerOneId ? $set3PlayerOneGames : $set3PlayerTwoGames;
+        $normalizedSet3PlayerTwoGames = $orderedPlayerTwo === $playerTwoId ? $set3PlayerTwoGames : $set3PlayerOneGames;
 
         $pdo = Database::getConnection();
 
@@ -131,13 +185,41 @@ class MatchResultController
         }
 
         $stmt = $pdo->prepare(
+            'SELECT id
+             FROM match_results
+             WHERE tournament_id = :tournament_id
+               AND round_number = :round_number
+               AND group_number = :group_number
+               AND player_one_id = :player_one_id
+               AND player_two_id = :player_two_id'
+        );
+        $stmt->execute([
+            'tournament_id' => $tournamentId,
+            'round_number' => $roundNumber,
+            'group_number' => $groupNumber,
+            'player_one_id' => $orderedPlayerOne,
+            'player_two_id' => $orderedPlayerTwo,
+        ]);
+        $existingResultId = (int)($stmt->fetch(PDO::FETCH_ASSOC)['id'] ?? 0);
+        if ($existingResultId > 0 && $authRole !== 'admin') {
+            http_response_code(403);
+            echo json_encode(['error' => 'El resultado ya fue enviado. Solo el administrador puede editarlo.']);
+            return;
+        }
+
+        $stmt = $pdo->prepare(
             'INSERT INTO match_results
-                (tournament_id, round_number, group_number, player_one_id, player_two_id, player_one_score, player_two_score, edited_by_user_id, created_at, updated_at)
+                (tournament_id, round_number, group_number, player_one_id, player_two_id, set1_player_one_games, set1_player_two_games, set2_player_one_games, set2_player_two_games, set3_player_one_games, set3_player_two_games, is_walkover, edited_by_user_id, created_at, updated_at)
              VALUES
-                (:tournament_id, :round_number, :group_number, :player_one_id, :player_two_id, :player_one_score, :player_two_score, :edited_by_user_id, NOW(), NOW())
+                (:tournament_id, :round_number, :group_number, :player_one_id, :player_two_id, :set1_player_one_games, :set1_player_two_games, :set2_player_one_games, :set2_player_two_games, :set3_player_one_games, :set3_player_two_games, :is_walkover, :edited_by_user_id, NOW(), NOW())
              ON DUPLICATE KEY UPDATE
-                player_one_score = VALUES(player_one_score),
-                player_two_score = VALUES(player_two_score),
+                set1_player_one_games = VALUES(set1_player_one_games),
+                set1_player_two_games = VALUES(set1_player_two_games),
+                set2_player_one_games = VALUES(set2_player_one_games),
+                set2_player_two_games = VALUES(set2_player_two_games),
+                set3_player_one_games = VALUES(set3_player_one_games),
+                set3_player_two_games = VALUES(set3_player_two_games),
+                is_walkover = VALUES(is_walkover),
                 edited_by_user_id = VALUES(edited_by_user_id),
                 updated_at = NOW()'
         );
@@ -148,8 +230,13 @@ class MatchResultController
             'group_number' => $groupNumber,
             'player_one_id' => $orderedPlayerOne,
             'player_two_id' => $orderedPlayerTwo,
-            'player_one_score' => $normalizedPlayerOneScore,
-            'player_two_score' => $normalizedPlayerTwoScore,
+            'set1_player_one_games' => $normalizedSet1PlayerOneGames,
+            'set1_player_two_games' => $normalizedSet1PlayerTwoGames,
+            'set2_player_one_games' => $normalizedSet2PlayerOneGames,
+            'set2_player_two_games' => $normalizedSet2PlayerTwoGames,
+            'set3_player_one_games' => $normalizedSet3PlayerOneGames,
+            'set3_player_two_games' => $normalizedSet3PlayerTwoGames,
+            'is_walkover' => $isWalkover,
             'edited_by_user_id' => $authUserId,
         ]);
 

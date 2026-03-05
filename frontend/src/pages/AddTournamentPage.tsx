@@ -11,6 +11,8 @@ export const AddTournamentPage: React.FC = () => {
   const [name, setName] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [roundStartDate, setRoundStartDate] = useState('');
+  const [roundEndDate, setRoundEndDate] = useState('');
   const [participantsCount, setParticipantsCount] = useState(5);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,6 +32,21 @@ export const AddTournamentPage: React.FC = () => {
       return;
     }
 
+    if (roundStartDate === '' || roundEndDate === '') {
+      setError('Debes elegir fecha inicio y fecha fin para la ronda.');
+      return;
+    }
+
+    if (roundStartDate > roundEndDate) {
+      setError('La fecha inicio de la ronda no puede ser mayor a la fecha fin.');
+      return;
+    }
+
+    if (startDate !== '' && endDate !== '' && (roundStartDate < startDate || roundEndDate > endDate)) {
+      setError('Las fechas de la ronda deben estar dentro de las fechas del torneo.');
+      return;
+    }
+
     setLoading(true);
     try {
       await createTournament(
@@ -39,7 +56,8 @@ export const AddTournamentPage: React.FC = () => {
           end_date: endDate,
           participants_count: participantsCount,
           groups_count: groupsCount,
-          rounds_count: 0
+          round_start_date: roundStartDate,
+          round_end_date: roundEndDate
         },
         token
       );
@@ -98,6 +116,27 @@ export const AddTournamentPage: React.FC = () => {
               min={1}
               value={groupsCount}
               readOnly
+            />
+          </label>
+
+          <h3>Ronda inicial</h3>
+          <label>
+            Fecha inicio ronda
+            <input
+              type="date"
+              value={roundStartDate}
+              onChange={(e) => setRoundStartDate(e.target.value)}
+              required
+            />
+          </label>
+
+          <label>
+            Fecha fin ronda
+            <input
+              type="date"
+              value={roundEndDate}
+              onChange={(e) => setRoundEndDate(e.target.value)}
+              required
             />
           </label>
 

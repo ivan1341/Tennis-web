@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
-  createTournamentRound,
   getMatchResults,
   getTournamentById,
   getTournamentPlayers,
@@ -30,6 +29,25 @@ interface GroupMatch {
   groupNumber: number;
   playerOne: GroupPlayer;
   playerTwo: GroupPlayer;
+}
+
+interface PlayerStats {
+  pg: number;
+  pp: number;
+  pts: number;
+  pj: number;
+  sets: number;
+  games: number;
+}
+
+interface OrientedMatchResult {
+  set1One: number;
+  set1Two: number;
+  set2One: number;
+  set2Two: number;
+  set3One: number;
+  set3Two: number;
+  isWalkover: boolean;
 }
 
 const getPairKey = (playerOneId: number, playerTwoId: number): string => {
@@ -84,6 +102,59 @@ const buildGroupMatches = (group: GroupData): GroupMatch[] => {
   return matches;
 };
 
+const getOrientedResult = (
+  results: MatchResult[],
+  playerOneId: number,
+  playerTwoId: number
+): OrientedMatchResult | null => {
+  const existing = results.find((result) => getPairKey(result.player_one_id, result.player_two_id) === getPairKey(playerOneId, playerTwoId));
+  if (!existing) return null;
+
+  if (existing.player_one_id === playerOneId) {
+    return {
+      set1One: existing.set1_player_one_games,
+      set1Two: existing.set1_player_two_games,
+      set2One: existing.set2_player_one_games,
+      set2Two: existing.set2_player_two_games,
+      set3One: existing.set3_player_one_games,
+      set3Two: existing.set3_player_two_games,
+      isWalkover: Boolean(existing.is_walkover)
+    };
+  }
+
+  return {
+    set1One: existing.set1_player_two_games,
+    set1Two: existing.set1_player_one_games,
+    set2One: existing.set2_player_two_games,
+    set2Two: existing.set2_player_one_games,
+    set3One: existing.set3_player_two_games,
+    set3Two: existing.set3_player_one_games,
+    isWalkover: Boolean(existing.is_walkover)
+  };
+};
+
+const summarizeMatch = (result: OrientedMatchResult): { setsOne: number; setsTwo: number; gamesOne: number; gamesTwo: number } => {
+  const pairs: Array<[number, number]> = [
+    [result.set1One, result.set1Two],
+    [result.set2One, result.set2Two],
+    [result.set3One, result.set3Two]
+  ];
+
+  let setsOne = 0;
+  let setsTwo = 0;
+  let gamesOne = 0;
+  let gamesTwo = 0;
+
+  pairs.forEach(([one, two]) => {
+    gamesOne += one;
+    gamesTwo += two;
+    if (one > two) setsOne += 1;
+    if (two > one) setsTwo += 1;
+  });
+
+  return { setsOne, setsTwo, gamesOne, gamesTwo };
+};
+
 export const TournamentDetailViewPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const tournamentId = useMemo(() => Number(id), [id]);
@@ -97,9 +168,20 @@ export const TournamentDetailViewPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [selectedRound, setSelectedRound] = useState<number | null>(null);
-  const [newRoundStartDate, setNewRoundStartDate] = useState('');
-  const [newRoundEndDate, setNewRoundEndDate] = useState('');
-  const [resultDrafts, setResultDrafts] = useState<Record<string, { scoreOne: string; scoreTwo: string }>>({});
+  const [resultDrafts, setResultDrafts] = useState<
+    Record<
+      string,
+      {
+        set1One: string;
+        set1Two: string;
+        set2One: string;
+        set2Two: string;
+        set3One: string;
+        set3Two: string;
+        isWalkover: boolean;
+      }
+    >
+  >({});
 
   useEffect(() => {
     const load = async () => {
@@ -154,62 +236,48 @@ export const TournamentDetailViewPage: React.FC = () => {
     void loadResults();
   }, [tournament, selectedRound]);
 
-  const handleCreateRound = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setError(null);
-    setSuccess(null);
-
-    if (!token || !tournament) {
-      setError('Sesión inválida. Inicia sesión nuevamente.');
-      return;
-    }
-
-    if (newRoundStartDate === '' || newRoundEndDate === '') {
-      setError('Debes elegir fecha inicio y fecha fin para la ronda.');
-      return;
-    }
-
-    if (newRoundStartDate > newRoundEndDate) {
-      setError('La fecha inicio no puede ser mayor a la fecha fin.');
-      return;
-    }
-
-    try {
-      const createdRound = await createTournamentRound(
-        {
-          tournament_id: tournament.id,
-          start_date: newRoundStartDate,
-          end_date: newRoundEndDate
-        },
-        token
-      );
-
-      const nextRounds = [...rounds, createdRound].sort((a, b) => a.round_number - b.round_number);
-      setRounds(nextRounds);
-      setTournament({ ...tournament, rounds_count: nextRounds.length });
-      setSelectedRound(createdRound.round_number);
-      setNewRoundStartDate('');
-      setNewRoundEndDate('');
-      setSuccess('Ronda creada correctamente');
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  };
-
-  const getDraftForMatch = (playerOneId: number, playerTwoId: number): { scoreOne: string; scoreTwo: string } => {
+  const getDraftForMatch = (
+    playerOneId: number,
+    playerTwoId: number
+  ): {
+    set1One: string;
+    set1Two: string;
+    set2One: string;
+    set2Two: string;
+    set3One: string;
+    set3Two: string;
+    isWalkover: boolean;
+  } => {
     const key = getPairKey(playerOneId, playerTwoId);
     if (resultDrafts[key]) return resultDrafts[key];
 
-    const existing = matchResults.find((result) => getPairKey(result.player_one_id, result.player_two_id) === key);
-    if (!existing) return { scoreOne: '', scoreTwo: '' };
+    const existing = getOrientedResult(matchResults, playerOneId, playerTwoId);
+    if (!existing) return { set1One: '', set1Two: '', set2One: '', set2Two: '', set3One: '', set3Two: '', isWalkover: false };
 
-    if (existing.player_one_id === playerOneId) {
-      return { scoreOne: String(existing.player_one_score), scoreTwo: String(existing.player_two_score) };
-    }
-    return { scoreOne: String(existing.player_two_score), scoreTwo: String(existing.player_one_score) };
+    return {
+      set1One: String(existing.set1One),
+      set1Two: String(existing.set1Two),
+      set2One: String(existing.set2One),
+      set2Two: String(existing.set2Two),
+      set3One: String(existing.set3One),
+      set3Two: String(existing.set3Two),
+      isWalkover: existing.isWalkover
+    };
   };
 
-  const updateDraft = (playerOneId: number, playerTwoId: number, next: { scoreOne: string; scoreTwo: string }) => {
+  const updateDraft = (
+    playerOneId: number,
+    playerTwoId: number,
+    next: {
+      set1One: string;
+      set1Two: string;
+      set2One: string;
+      set2Two: string;
+      set3One: string;
+      set3Two: string;
+      isWalkover: boolean;
+    }
+  ) => {
     const key = getPairKey(playerOneId, playerTwoId);
     setResultDrafts((prev) => ({ ...prev, [key]: next }));
   };
@@ -221,14 +289,65 @@ export const TournamentDetailViewPage: React.FC = () => {
     }
 
     const draft = getDraftForMatch(playerOneId, playerTwoId);
-    const parsedOne = Number(draft.scoreOne);
-    const parsedTwo = Number(draft.scoreTwo);
-    if (draft.scoreOne.trim() === '' || draft.scoreTwo.trim() === '' || Number.isNaN(parsedOne) || Number.isNaN(parsedTwo)) {
-      setError('Debes ingresar ambos resultados con números válidos');
+    const parsedSet1One = Number(draft.set1One);
+    const parsedSet1Two = Number(draft.set1Two);
+    const parsedSet2One = Number(draft.set2One);
+    const parsedSet2Two = Number(draft.set2Two);
+    const parsedSet3One = Number(draft.set3One);
+    const parsedSet3Two = Number(draft.set3Two);
+    if (
+      draft.set1One.trim() === '' ||
+      draft.set1Two.trim() === '' ||
+      draft.set2One.trim() === '' ||
+      draft.set2Two.trim() === '' ||
+      Number.isNaN(parsedSet1One) ||
+      Number.isNaN(parsedSet1Two) ||
+      Number.isNaN(parsedSet2One) ||
+      Number.isNaN(parsedSet2Two) ||
+      (draft.set3One.trim() !== '' && Number.isNaN(parsedSet3One)) ||
+      (draft.set3Two.trim() !== '' && Number.isNaN(parsedSet3Two))
+    ) {
+      setError('Debes ingresar Set 1 y Set 2. Set 3 es opcional.');
       return;
     }
-    if (parsedOne < 0 || parsedTwo < 0) {
-      setError('Los resultados no pueden ser negativos');
+    const normalizedSet3One = draft.set3One.trim() === '' ? 0 : parsedSet3One;
+    const normalizedSet3Two = draft.set3Two.trim() === '' ? 0 : parsedSet3Two;
+    if (
+      parsedSet1One < 0 ||
+      parsedSet1Two < 0 ||
+      parsedSet2One < 0 ||
+      parsedSet2Two < 0 ||
+      normalizedSet3One < 0 ||
+      normalizedSet3Two < 0
+    ) {
+      setError('Los sets no pueden ser negativos');
+      return;
+    }
+    if (parsedSet1One === parsedSet1Two || parsedSet2One === parsedSet2Two) {
+      setError('Set 1 y Set 2 deben tener ganador.');
+      return;
+    }
+    const setPairs: Array<[number, number]> = [
+      [parsedSet1One, parsedSet1Two],
+      [parsedSet2One, parsedSet2Two],
+      [normalizedSet3One, normalizedSet3Two]
+    ];
+    const hasInvalidTie = setPairs.some(([one, two]) => one === two && one !== 0);
+    if (hasInvalidTie) {
+      setError('Cada set debe tener ganador (o 0/0 si no se jugó).');
+      return;
+    }
+    const summary = summarizeMatch({
+      set1One: parsedSet1One,
+      set1Two: parsedSet1Two,
+      set2One: parsedSet2One,
+      set2Two: parsedSet2Two,
+      set3One: normalizedSet3One,
+      set3Two: normalizedSet3Two,
+      isWalkover: draft.isWalkover
+    });
+    if (summary.setsOne === summary.setsTwo) {
+      setError('Debe existir un ganador en sets');
       return;
     }
 
@@ -243,8 +362,13 @@ export const TournamentDetailViewPage: React.FC = () => {
           group_number: groupNumber,
           player_one_id: playerOneId,
           player_two_id: playerTwoId,
-          player_one_score: parsedOne,
-          player_two_score: parsedTwo
+          set1_player_one_games: parsedSet1One,
+          set1_player_two_games: parsedSet1Two,
+          set2_player_one_games: parsedSet2One,
+          set2_player_two_games: parsedSet2Two,
+          set3_player_one_games: normalizedSet3One,
+          set3_player_two_games: normalizedSet3Two,
+          is_walkover: draft.isWalkover
         },
         token
       );
@@ -280,6 +404,8 @@ export const TournamentDetailViewPage: React.FC = () => {
 
   const groups = buildGroups(tournament, assignedPlayers);
   const selectedRoundData = rounds.find((round) => round.round_number === selectedRound) ?? null;
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const isSelectedRoundClosed = selectedRoundData !== null && selectedRoundData.end_date < todayIso;
 
   return (
     <div className="app-shell">
@@ -329,44 +455,65 @@ export const TournamentDetailViewPage: React.FC = () => {
               Ronda {selectedRoundData.round_number}: {selectedRoundData.start_date} - {selectedRoundData.end_date}
             </p>
           )}
-          {user?.role === 'admin' && (
-            <form className="round-create-form" onSubmit={handleCreateRound}>
-              <h3>Crear ronda</h3>
-              <label>
-                Fecha inicio
-                <input
-                  type="date"
-                  value={newRoundStartDate}
-                  onChange={(event) => setNewRoundStartDate(event.target.value)}
-                  required
-                />
-              </label>
-              <label>
-                Fecha fin
-                <input
-                  type="date"
-                  value={newRoundEndDate}
-                  onChange={(event) => setNewRoundEndDate(event.target.value)}
-                  required
-                />
-              </label>
-              <button type="submit" className="secondary-btn">
-                Crear ronda
-              </button>
-            </form>
-          )}
         </section>
 
         {error && <p className="error-text">{error}</p>}
         {success && <p className="success-text">{success}</p>}
 
         <h3 className="round-title">Ronda {selectedRound ?? '-'}</h3>
+        <p className="muted">
+          PG: ganados, PP: perdidos, PTS: 3 por victoria y 1 por derrota (W.O. resta 1 al perdedor, NR resta 1 al cerrar ronda), PJ: jugados, S: sets, J: juegos.
+        </p>
 
         {selectedRound === null ? (
           <p className="muted">No hay rondas creadas todavía.</p>
         ) : (
           groups.map((group) => {
             const groupMatches = buildGroupMatches(group);
+            const statsByPlayer = new Map<number, PlayerStats>();
+
+            group.players.forEach((player) => {
+              if (player.id !== null) {
+                statsByPlayer.set(player.id, { pg: 0, pp: 0, pts: 0, pj: 0, sets: 0, games: 0 });
+              }
+            });
+
+            groupMatches.forEach((match) => {
+              const playerOneId = match.playerOne.id as number;
+              const playerTwoId = match.playerTwo.id as number;
+              const result = getOrientedResult(matchResults, playerOneId, playerTwoId);
+              const playerOneStats = statsByPlayer.get(playerOneId);
+              const playerTwoStats = statsByPlayer.get(playerTwoId);
+              if (!playerOneStats || !playerTwoStats) return;
+
+              if (!result) {
+                if (isSelectedRoundClosed) {
+                  playerOneStats.pts -= 1;
+                  playerTwoStats.pts -= 1;
+                }
+                return;
+              }
+
+              playerOneStats.pj += 1;
+              playerTwoStats.pj += 1;
+              const summary = summarizeMatch(result);
+              playerOneStats.sets += summary.setsOne;
+              playerTwoStats.sets += summary.setsTwo;
+              playerOneStats.games += summary.gamesOne;
+              playerTwoStats.games += summary.gamesTwo;
+
+              if (summary.setsOne > summary.setsTwo) {
+                playerOneStats.pg += 1;
+                playerTwoStats.pp += 1;
+                playerOneStats.pts += 3;
+                playerTwoStats.pts += result.isWalkover ? -1 : 1;
+              } else {
+                playerTwoStats.pg += 1;
+                playerOneStats.pp += 1;
+                playerTwoStats.pts += 3;
+                playerOneStats.pts += result.isWalkover ? -1 : 1;
+              }
+            });
 
             return (
               <section key={group.name} className="card detail-group-card">
@@ -391,17 +538,31 @@ export const TournamentDetailViewPage: React.FC = () => {
                     {group.players.map((playerInfo, rowIdx) => (
                       <tr key={`row-${group.name}-${rowIdx}`}>
                         <td>{playerInfo.name}</td>
-                        {group.players.map((_, colIdx) => (
-                          <td key={`cell-${group.name}-${rowIdx}-${colIdx}`}>
-                            {rowIdx === colIdx ? '-' : 'Por definir'}
-                          </td>
-                        ))}
-                        <td>0</td>
-                        <td>0</td>
-                        <td>0</td>
-                        <td>0</td>
-                        <td>0</td>
-                        <td>0</td>
+                        {group.players.map((opponentInfo, colIdx) => {
+                          if (rowIdx === colIdx) {
+                            return <td key={`cell-${group.name}-${rowIdx}-${colIdx}`}>-</td>;
+                          }
+                          if (playerInfo.id === null || opponentInfo.id === null) {
+                            return <td key={`cell-${group.name}-${rowIdx}-${colIdx}`}>Por definir</td>;
+                          }
+
+                          const versus = getOrientedResult(matchResults, playerInfo.id, opponentInfo.id);
+                          return (
+                            <td key={`cell-${group.name}-${rowIdx}-${colIdx}`}>
+                              {versus
+                                ? `${versus.set1One}/${versus.set1Two} ${versus.set2One}/${versus.set2Two}${
+                                    versus.set3One !== 0 || versus.set3Two !== 0 ? ` [${versus.set3One} : ${versus.set3Two}]` : ''
+                                  }${versus.isWalkover ? ' (W.O.)' : ''}`
+                                : 'NR'}
+                            </td>
+                          );
+                        })}
+                        <td>{playerInfo.id !== null ? (statsByPlayer.get(playerInfo.id)?.pg ?? 0) : '-'}</td>
+                        <td>{playerInfo.id !== null ? (statsByPlayer.get(playerInfo.id)?.pp ?? 0) : '-'}</td>
+                        <td>{playerInfo.id !== null ? (statsByPlayer.get(playerInfo.id)?.pts ?? 0) : '-'}</td>
+                        <td>{playerInfo.id !== null ? (statsByPlayer.get(playerInfo.id)?.pj ?? 0) : '-'}</td>
+                        <td>{playerInfo.id !== null ? (statsByPlayer.get(playerInfo.id)?.sets ?? 0) : '-'}</td>
+                        <td>{playerInfo.id !== null ? (statsByPlayer.get(playerInfo.id)?.games ?? 0) : '-'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -418,8 +579,10 @@ export const TournamentDetailViewPage: React.FC = () => {
                       <tr>
                         <th>Jugador A</th>
                         <th>Jugador B</th>
-                        <th>Resultado A</th>
-                        <th>Resultado B</th>
+                        <th>Set 1</th>
+                        <th>Set 2</th>
+                        <th>Set 3</th>
+                        <th>W.O.</th>
                         <th>Acción</th>
                       </tr>
                     </thead>
@@ -427,38 +590,148 @@ export const TournamentDetailViewPage: React.FC = () => {
                       {groupMatches.map((match) => {
                         const playerOneId = match.playerOne.id as number;
                         const playerTwoId = match.playerTwo.id as number;
+                        const existing = getOrientedResult(matchResults, playerOneId, playerTwoId);
                         const canEdit =
-                          user?.role === 'admin' || user?.id === playerOneId || user?.id === playerTwoId;
+                          user?.role === 'admin' ||
+                          (existing === null && (user?.id === playerOneId || user?.id === playerTwoId));
                         const draft = getDraftForMatch(playerOneId, playerTwoId);
+                        const actionLabel = existing !== null && user?.role !== 'admin' ? 'Enviado' : 'Guardar';
 
                         return (
                           <tr key={`match-${group.groupNumber}-${playerOneId}-${playerTwoId}`}>
                             <td>{match.playerOne.name}</td>
                             <td>{match.playerTwo.name}</td>
                             <td>
-                              <input
-                                type="number"
-                                min={0}
-                                value={draft.scoreOne}
-                                disabled={!canEdit}
-                                onChange={(event) =>
-                                  updateDraft(playerOneId, playerTwoId, {
-                                    scoreOne: event.target.value,
-                                    scoreTwo: draft.scoreTwo
-                                  })
-                                }
-                              />
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={draft.set1One}
+                                  disabled={!canEdit}
+                                  onChange={(event) =>
+                                    updateDraft(playerOneId, playerTwoId, {
+                                      set1One: event.target.value,
+                                      set1Two: draft.set1Two,
+                                      set2One: draft.set2One,
+                                      set2Two: draft.set2Two,
+                                      set3One: draft.set3One,
+                                      set3Two: draft.set3Two,
+                                      isWalkover: draft.isWalkover
+                                    })
+                                  }
+                                />
+                                <span>/</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={draft.set1Two}
+                                  disabled={!canEdit}
+                                  onChange={(event) =>
+                                    updateDraft(playerOneId, playerTwoId, {
+                                      set1One: draft.set1One,
+                                      set1Two: event.target.value,
+                                      set2One: draft.set2One,
+                                      set2Two: draft.set2Two,
+                                      set3One: draft.set3One,
+                                      set3Two: draft.set3Two,
+                                      isWalkover: draft.isWalkover
+                                    })
+                                  }
+                                />
+                              </div>
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={draft.set2One}
+                                  disabled={!canEdit}
+                                  onChange={(event) =>
+                                    updateDraft(playerOneId, playerTwoId, {
+                                      set1One: draft.set1One,
+                                      set1Two: draft.set1Two,
+                                      set2One: event.target.value,
+                                      set2Two: draft.set2Two,
+                                      set3One: draft.set3One,
+                                      set3Two: draft.set3Two,
+                                      isWalkover: draft.isWalkover
+                                    })
+                                  }
+                                />
+                                <span>/</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={draft.set2Two}
+                                  disabled={!canEdit}
+                                  onChange={(event) =>
+                                    updateDraft(playerOneId, playerTwoId, {
+                                      set1One: draft.set1One,
+                                      set1Two: draft.set1Two,
+                                      set2One: draft.set2One,
+                                      set2Two: event.target.value,
+                                      set3One: draft.set3One,
+                                      set3Two: draft.set3Two,
+                                      isWalkover: draft.isWalkover
+                                    })
+                                  }
+                                />
+                              </div>
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={draft.set3One}
+                                  disabled={!canEdit}
+                                  onChange={(event) =>
+                                    updateDraft(playerOneId, playerTwoId, {
+                                      set1One: draft.set1One,
+                                      set1Two: draft.set1Two,
+                                      set2One: draft.set2One,
+                                      set2Two: draft.set2Two,
+                                      set3One: event.target.value,
+                                      set3Two: draft.set3Two,
+                                      isWalkover: draft.isWalkover
+                                    })
+                                  }
+                                />
+                                <span>/</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={draft.set3Two}
+                                  disabled={!canEdit}
+                                  onChange={(event) =>
+                                    updateDraft(playerOneId, playerTwoId, {
+                                      set1One: draft.set1One,
+                                      set1Two: draft.set1Two,
+                                      set2One: draft.set2One,
+                                      set2Two: draft.set2Two,
+                                      set3One: draft.set3One,
+                                      set3Two: event.target.value,
+                                      isWalkover: draft.isWalkover
+                                    })
+                                  }
+                                />
+                              </div>
                             </td>
                             <td>
                               <input
-                                type="number"
-                                min={0}
-                                value={draft.scoreTwo}
+                                type="checkbox"
+                                checked={draft.isWalkover}
                                 disabled={!canEdit}
                                 onChange={(event) =>
                                   updateDraft(playerOneId, playerTwoId, {
-                                    scoreOne: draft.scoreOne,
-                                    scoreTwo: event.target.value
+                                    set1One: draft.set1One,
+                                    set1Two: draft.set1Two,
+                                    set2One: draft.set2One,
+                                    set2Two: draft.set2Two,
+                                    set3One: draft.set3One,
+                                    set3Two: draft.set3Two,
+                                    isWalkover: event.target.checked
                                   })
                                 }
                               />
@@ -470,7 +743,7 @@ export const TournamentDetailViewPage: React.FC = () => {
                                 disabled={!canEdit}
                                 onClick={() => handleSaveMatch(group.groupNumber, playerOneId, playerTwoId)}
                               >
-                                Guardar
+                                {actionLabel}
                               </button>
                             </td>
                           </tr>

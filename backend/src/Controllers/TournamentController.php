@@ -77,13 +77,33 @@ class TournamentController
         $name = trim((string)($input['name'] ?? ''));
         $startDate = (string)($input['start_date'] ?? '');
         $endDate = (string)($input['end_date'] ?? '');
+        $roundStartDate = (string)($input['round_start_date'] ?? '');
+        $roundEndDate = (string)($input['round_end_date'] ?? '');
         $participants = (int)($input['participants_count'] ?? 0);
         $groups = (int)ceil($participants / 5);
-        $rounds = (int)($input['rounds_count'] ?? 0);
+        $rounds = 1;
 
         if ($name === '' || $startDate === '' || $endDate === '') {
             http_response_code(422);
             echo json_encode(['error' => 'Nombre y fechas de inicio/fin son obligatorios']);
+            return;
+        }
+
+        if ($roundStartDate === '' || $roundEndDate === '') {
+            http_response_code(422);
+            echo json_encode(['error' => 'Las fechas de la ronda inicial son obligatorias']);
+            return;
+        }
+
+        if ($roundStartDate > $roundEndDate) {
+            http_response_code(422);
+            echo json_encode(['error' => 'La fecha de inicio de la ronda no puede ser mayor a la fecha fin']);
+            return;
+        }
+
+        if ($roundStartDate < $startDate || $roundEndDate > $endDate) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Las fechas de la ronda deben estar dentro de las fechas del torneo']);
             return;
         }
 
@@ -94,20 +114,42 @@ class TournamentController
         }
 
         $pdo = Database::getConnection();
-        $stmt = $pdo->prepare(
-            'INSERT INTO tournaments (name, start_date, end_date, participants_count, groups_count, rounds_count, created_at, updated_at)
-             VALUES (:name, :start_date, :end_date, :participants_count, :groups_count, :rounds_count, NOW(), NOW())'
-        );
-        $stmt->execute([
-            'name' => $name,
-            'start_date' => $startDate,
-            'end_date' => $endDate,
-            'participants_count' => $participants,
-            'groups_count' => $groups,
-            'rounds_count' => $rounds,
-        ]);
+        $pdo->beginTransaction();
+        try {
+            $stmt = $pdo->prepare(
+                'INSERT INTO tournaments (name, start_date, end_date, participants_count, groups_count, rounds_count, created_at, updated_at)
+                 VALUES (:name, :start_date, :end_date, :participants_count, :groups_count, :rounds_count, NOW(), NOW())'
+            );
+            $stmt->execute([
+                'name' => $name,
+                'start_date' => $startDate,
+                'end_date' => $endDate,
+                'participants_count' => $participants,
+                'groups_count' => $groups,
+                'rounds_count' => $rounds,
+            ]);
 
-        $id = (int)$pdo->lastInsertId();
+            $id = (int)$pdo->lastInsertId();
+
+            $stmt = $pdo->prepare(
+                'INSERT INTO tournament_rounds (tournament_id, round_number, start_date, end_date, created_at, updated_at)
+                 VALUES (:tournament_id, 1, :start_date, :end_date, NOW(), NOW())'
+            );
+            $stmt->execute([
+                'tournament_id' => $id,
+                'start_date' => $roundStartDate,
+                'end_date' => $roundEndDate,
+            ]);
+
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            http_response_code(500);
+            echo json_encode(['error' => 'No se pudo crear el torneo']);
+            return;
+        }
 
         http_response_code(201);
         echo json_encode([
