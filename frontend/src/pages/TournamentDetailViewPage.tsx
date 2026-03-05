@@ -155,6 +155,42 @@ const summarizeMatch = (result: OrientedMatchResult): { setsOne: number; setsTwo
   return { setsOne, setsTwo, gamesOne, gamesTwo };
 };
 
+const hasDraftChanges = (
+  draft: {
+    set1One: string;
+    set1Two: string;
+    set2One: string;
+    set2Two: string;
+    set3One: string;
+    set3Two: string;
+    isWalkover: boolean;
+  },
+  existing: OrientedMatchResult | null
+): boolean => {
+  if (!existing) {
+    return (
+      draft.set1One.trim() !== '' ||
+      draft.set1Two.trim() !== '' ||
+      draft.set2One.trim() !== '' ||
+      draft.set2Two.trim() !== '' ||
+      draft.set3One.trim() !== '' ||
+      draft.set3Two.trim() !== '' ||
+      draft.isWalkover
+    );
+  }
+
+  const normalize = (value: string): string => (value.trim() === '' ? '0' : value.trim());
+  return (
+    normalize(draft.set1One) !== String(existing.set1One) ||
+    normalize(draft.set1Two) !== String(existing.set1Two) ||
+    normalize(draft.set2One) !== String(existing.set2One) ||
+    normalize(draft.set2Two) !== String(existing.set2Two) ||
+    normalize(draft.set3One) !== String(existing.set3One) ||
+    normalize(draft.set3Two) !== String(existing.set3Two) ||
+    draft.isWalkover !== existing.isWalkover
+  );
+};
+
 export const TournamentDetailViewPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const tournamentId = useMemo(() => Number(id), [id]);
@@ -462,7 +498,7 @@ export const TournamentDetailViewPage: React.FC = () => {
 
         <h3 className="round-title">Ronda {selectedRound ?? '-'}</h3>
         <p className="muted">
-          PG: ganados, PP: perdidos, PTS: 3 por victoria y 1 por derrota (W.O. resta 1 al perdedor, NR resta 1 al cerrar ronda), PJ: jugados, S: sets, J: juegos.
+          PG: ganados, PP: perdidos, PTS: 3 por victoria y 1 por derrota (W.O. deja 0 al perdedor, NR resta 1 al cerrar ronda), PJ: jugados, S: sets, J: juegos.
         </p>
 
         {selectedRound === null ? (
@@ -506,12 +542,12 @@ export const TournamentDetailViewPage: React.FC = () => {
                 playerOneStats.pg += 1;
                 playerTwoStats.pp += 1;
                 playerOneStats.pts += 3;
-                playerTwoStats.pts += result.isWalkover ? -1 : 1;
+                playerTwoStats.pts += result.isWalkover ? 0 : 1;
               } else {
                 playerTwoStats.pg += 1;
                 playerOneStats.pp += 1;
                 playerTwoStats.pts += 3;
-                playerOneStats.pts += result.isWalkover ? -1 : 1;
+                playerOneStats.pts += result.isWalkover ? 0 : 1;
               }
             });
 
@@ -595,6 +631,7 @@ export const TournamentDetailViewPage: React.FC = () => {
                           user?.role === 'admin' ||
                           (existing === null && (user?.id === playerOneId || user?.id === playerTwoId));
                         const draft = getDraftForMatch(playerOneId, playerTwoId);
+                        const hasChanges = hasDraftChanges(draft, existing);
                         const actionLabel = existing !== null && user?.role !== 'admin' ? 'Enviado' : 'Guardar';
 
                         return (
@@ -740,7 +777,7 @@ export const TournamentDetailViewPage: React.FC = () => {
                               <button
                                 type="button"
                                 className="secondary-btn"
-                                disabled={!canEdit}
+                                disabled={!canEdit || !hasChanges}
                                 onClick={() => handleSaveMatch(group.groupNumber, playerOneId, playerTwoId)}
                               >
                                 {actionLabel}
