@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { createTournamentRound, getTournaments, updateTournament } from '../services/tournamentService';
+import { createTournamentRound, getTournamentRounds, getTournaments, updateTournament, type TournamentRound } from '../services/tournamentService';
 import { AppHeader } from '../components/AppHeader';
 
 export const EditTournamentPage: React.FC = () => {
@@ -15,6 +15,7 @@ export const EditTournamentPage: React.FC = () => {
   const [endDate, setEndDate] = useState('');
   const [participantsCount, setParticipantsCount] = useState(0);
   const [roundsCount, setRoundsCount] = useState(0);
+  const [rounds, setRounds] = useState<TournamentRound[]>([]);
   const [newRoundStartDate, setNewRoundStartDate] = useState('');
   const [newRoundEndDate, setNewRoundEndDate] = useState('');
   const [loading, setLoading] = useState(false);
@@ -42,6 +43,8 @@ export const EditTournamentPage: React.FC = () => {
         setEndDate(current.end_date);
         setParticipantsCount(current.participants_count);
         setRoundsCount(current.rounds_count);
+        const roundsData = await getTournamentRounds(current.id);
+        setRounds(roundsData);
       } catch (err) {
         setError((err as Error).message);
       } finally {
@@ -120,9 +123,17 @@ export const EditTournamentPage: React.FC = () => {
       return;
     }
 
+    const hasOverlap = rounds.some(
+      (round) => newRoundStartDate <= round.end_date && newRoundEndDate >= round.start_date
+    );
+    if (hasOverlap) {
+      setError('Las fechas de la ronda se traslapan con otra ronda existente.');
+      return;
+    }
+
     setCreatingRound(true);
     try {
-      await createTournamentRound(
+      const createdRound = await createTournamentRound(
         {
           tournament_id: tournamentId,
           start_date: newRoundStartDate,
@@ -131,6 +142,7 @@ export const EditTournamentPage: React.FC = () => {
         token
       );
       setRoundsCount((prev) => prev + 1);
+      setRounds((prev) => [...prev, createdRound].sort((a, b) => a.round_number - b.round_number));
       setNewRoundStartDate('');
       setNewRoundEndDate('');
       setSuccess('Ronda creada correctamente.');

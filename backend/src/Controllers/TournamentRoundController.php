@@ -94,6 +94,25 @@ class TournamentRoundController
             return;
         }
 
+        $stmt = $pdo->prepare(
+            'SELECT COUNT(*) AS total
+             FROM tournament_rounds
+             WHERE tournament_id = :tournament_id
+               AND :start_date <= end_date
+               AND :end_date >= start_date'
+        );
+        $stmt->execute([
+            'tournament_id' => $tournamentId,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+        ]);
+        $overlapCount = (int)($stmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0);
+        if ($overlapCount > 0) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Las fechas de la ronda se traslapan con otra ronda existente']);
+            return;
+        }
+
         $stmt = $pdo->prepare('SELECT COALESCE(MAX(round_number), 0) AS max_round FROM tournament_rounds WHERE tournament_id = :tournament_id');
         $stmt->execute(['tournament_id' => $tournamentId]);
         $maxRound = (int)($stmt->fetch(PDO::FETCH_ASSOC)['max_round'] ?? 0);

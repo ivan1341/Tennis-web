@@ -40,6 +40,12 @@ interface PlayerStats {
   games: number;
 }
 
+interface RankedPlayer {
+  id: number;
+  name: string;
+  stats: PlayerStats;
+}
+
 interface OrientedMatchResult {
   set1One: number;
   set1Two: number;
@@ -191,6 +197,45 @@ const hasDraftChanges = (
   );
 };
 
+const compareRankedPlayers = (
+  a: RankedPlayer,
+  b: RankedPlayer,
+  matchResults: MatchResult[]
+): number => {
+  if (b.stats.pts !== a.stats.pts) return b.stats.pts - a.stats.pts;
+
+  const direct = getOrientedResult(matchResults, a.id, b.id);
+  if (direct) {
+    const summary = summarizeMatch(direct);
+    if (summary.setsOne !== summary.setsTwo) {
+      return summary.setsTwo - summary.setsOne;
+    }
+  }
+
+  if (b.stats.sets !== a.stats.sets) return b.stats.sets - a.stats.sets;
+  if (b.stats.games !== a.stats.games) return b.stats.games - a.stats.games;
+  return a.name.localeCompare(b.name, 'es');
+};
+
+const getMovementLabel = (rank: number, groupNumber: number, firstGroup: number, lastGroup: number): string => {
+  const isTopTwo = rank <= 2;
+  const isBottomTwo = rank >= 4;
+
+  if (groupNumber === firstGroup) {
+    if (isBottomTwo) return 'Baja';
+    return '-';
+  }
+
+  if (groupNumber === lastGroup) {
+    if (isTopTwo) return 'Sube';
+    return '-';
+  }
+
+  if (isTopTwo) return 'Sube';
+  if (isBottomTwo) return 'Baja';
+  return '-';
+};
+
 export const TournamentDetailViewPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const tournamentId = useMemo(() => Number(id), [id]);
@@ -203,6 +248,7 @@ export const TournamentDetailViewPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [modalError, setModalError] = useState<string | null>(null);
   const [selectedRound, setSelectedRound] = useState<number | null>(null);
   const [resultDrafts, setResultDrafts] = useState<
     Record<
@@ -265,7 +311,7 @@ export const TournamentDetailViewPage: React.FC = () => {
         const results = await getMatchResults(tournament.id, selectedRound);
         setMatchResults(results);
       } catch (err) {
-        setError((err as Error).message);
+        setModalError((err as Error).message);
       }
     };
 
@@ -293,10 +339,10 @@ export const TournamentDetailViewPage: React.FC = () => {
     return {
       set1One: String(existing.set1One),
       set1Two: String(existing.set1Two),
-      set2One: String(existing.set2One),
-      set2Two: String(existing.set2Two),
-      set3One: String(existing.set3One),
-      set3Two: String(existing.set3Two),
+      set2One: existing.set2One === 0 && existing.set2Two === 0 ? '' : String(existing.set2One),
+      set2Two: existing.set2One === 0 && existing.set2Two === 0 ? '' : String(existing.set2Two),
+      set3One: existing.set3One === 0 && existing.set3Two === 0 ? '' : String(existing.set3One),
+      set3Two: existing.set3One === 0 && existing.set3Two === 0 ? '' : String(existing.set3Two),
       isWalkover: existing.isWalkover
     };
   };
@@ -320,7 +366,7 @@ export const TournamentDetailViewPage: React.FC = () => {
 
   const handleSaveMatch = async (groupNumber: number, playerOneId: number, playerTwoId: number) => {
     if (!token || !tournament || selectedRound === null) {
-      setError('Sesión inválida. Inicia sesión nuevamente.');
+      setModalError('Sesión inválida. Inicia sesión nuevamente.');
       return;
     }
 
@@ -334,60 +380,66 @@ export const TournamentDetailViewPage: React.FC = () => {
     if (
       draft.set1One.trim() === '' ||
       draft.set1Two.trim() === '' ||
-      draft.set2One.trim() === '' ||
-      draft.set2Two.trim() === '' ||
       Number.isNaN(parsedSet1One) ||
       Number.isNaN(parsedSet1Two) ||
-      Number.isNaN(parsedSet2One) ||
-      Number.isNaN(parsedSet2Two) ||
+      (draft.set2One.trim() !== '' && Number.isNaN(parsedSet2One)) ||
+      (draft.set2Two.trim() !== '' && Number.isNaN(parsedSet2Two)) ||
       (draft.set3One.trim() !== '' && Number.isNaN(parsedSet3One)) ||
       (draft.set3Two.trim() !== '' && Number.isNaN(parsedSet3Two))
     ) {
-      setError('Debes ingresar Set 1 y Set 2. Set 3 es opcional.');
+      setModalError('Debes ingresar Set 1. Set 2 y Set 3 son opcionales.');
       return;
     }
+    const isSet2Partial = (draft.set2One.trim() === '') !== (draft.set2Two.trim() === '');
+    const isSet3Partial = (draft.set3One.trim() === '') !== (draft.set3Two.trim() === '');
+    if (isSet2Partial || isSet3Partial) {
+      setModalError('Si capturas Set 2 o Set 3, debes ingresar ambos lados del set.');
+      return;
+    }
+    const normalizedSet2One = draft.set2One.trim() === '' ? 0 : parsedSet2One;
+    const normalizedSet2Two = draft.set2Two.trim() === '' ? 0 : parsedSet2Two;
     const normalizedSet3One = draft.set3One.trim() === '' ? 0 : parsedSet3One;
     const normalizedSet3Two = draft.set3Two.trim() === '' ? 0 : parsedSet3Two;
     if (
       parsedSet1One < 0 ||
       parsedSet1Two < 0 ||
-      parsedSet2One < 0 ||
-      parsedSet2Two < 0 ||
+      normalizedSet2One < 0 ||
+      normalizedSet2Two < 0 ||
       normalizedSet3One < 0 ||
       normalizedSet3Two < 0
     ) {
-      setError('Los sets no pueden ser negativos');
+      setModalError('Los sets no pueden ser negativos');
       return;
     }
-    if (parsedSet1One === parsedSet1Two || parsedSet2One === parsedSet2Two) {
-      setError('Set 1 y Set 2 deben tener ganador.');
+    if (parsedSet1One === parsedSet1Two) {
+      setModalError('Set 1 debe tener ganador.');
       return;
     }
     const setPairs: Array<[number, number]> = [
       [parsedSet1One, parsedSet1Two],
-      [parsedSet2One, parsedSet2Two],
+      [normalizedSet2One, normalizedSet2Two],
       [normalizedSet3One, normalizedSet3Two]
     ];
     const hasInvalidTie = setPairs.some(([one, two]) => one === two && one !== 0);
     if (hasInvalidTie) {
-      setError('Cada set debe tener ganador (o 0/0 si no se jugó).');
+      setModalError('Cada set debe tener ganador (o 0/0 si no se jugó).');
       return;
     }
     const summary = summarizeMatch({
       set1One: parsedSet1One,
       set1Two: parsedSet1Two,
-      set2One: parsedSet2One,
-      set2Two: parsedSet2Two,
+      set2One: normalizedSet2One,
+      set2Two: normalizedSet2Two,
       set3One: normalizedSet3One,
       set3Two: normalizedSet3Two,
       isWalkover: draft.isWalkover
     });
     if (summary.setsOne === summary.setsTwo) {
-      setError('Debe existir un ganador en sets');
+      setModalError('Debe existir un ganador en sets');
       return;
     }
 
-    setError(null);
+    setModalError(null);
     setSuccess(null);
 
     try {
@@ -400,8 +452,8 @@ export const TournamentDetailViewPage: React.FC = () => {
           player_two_id: playerTwoId,
           set1_player_one_games: parsedSet1One,
           set1_player_two_games: parsedSet1Two,
-          set2_player_one_games: parsedSet2One,
-          set2_player_two_games: parsedSet2Two,
+          set2_player_one_games: normalizedSet2One,
+          set2_player_two_games: normalizedSet2Two,
           set3_player_one_games: normalizedSet3One,
           set3_player_two_games: normalizedSet3Two,
           is_walkover: draft.isWalkover
@@ -413,7 +465,7 @@ export const TournamentDetailViewPage: React.FC = () => {
       setMatchResults(refreshed);
       setSuccess('Resultado guardado correctamente');
     } catch (err) {
-      setError((err as Error).message);
+      setModalError((err as Error).message);
     }
   };
 
@@ -442,6 +494,9 @@ export const TournamentDetailViewPage: React.FC = () => {
   const selectedRoundData = rounds.find((round) => round.round_number === selectedRound) ?? null;
   const todayIso = new Date().toISOString().slice(0, 10);
   const isSelectedRoundClosed = selectedRoundData !== null && selectedRoundData.end_date < todayIso;
+  const groupNumbers = groups.map((group) => group.groupNumber);
+  const firstGroupNumber = Math.min(...groupNumbers);
+  const lastGroupNumber = Math.max(...groupNumbers);
 
   return (
     <div className="app-shell">
@@ -493,7 +548,6 @@ export const TournamentDetailViewPage: React.FC = () => {
           )}
         </section>
 
-        {error && <p className="error-text">{error}</p>}
         {success && <p className="success-text">{success}</p>}
 
         <h3 className="round-title">Ronda {selectedRound ?? '-'}</h3>
@@ -551,6 +605,23 @@ export const TournamentDetailViewPage: React.FC = () => {
               }
             });
 
+            const rankedPlayers = Array.from(statsByPlayer.entries())
+              .map(([id, stats]) => ({
+                id,
+                name: group.players.find((p) => p.id === id)?.name ?? `Jugador ${id}`,
+                stats
+              }))
+              .sort((a, b) => compareRankedPlayers(a, b, matchResults));
+
+            const movementByPlayerId = new Map<number, string>();
+            rankedPlayers.forEach((player, index) => {
+              const rank = index + 1;
+              movementByPlayerId.set(
+                player.id,
+                getMovementLabel(rank, group.groupNumber, firstGroupNumber, lastGroupNumber)
+              );
+            });
+
             return (
               <section key={group.name} className="card detail-group-card">
               <h3>{group.name}</h3>
@@ -568,6 +639,7 @@ export const TournamentDetailViewPage: React.FC = () => {
                       <th>PJ</th>
                       <th>S</th>
                       <th>J</th>
+                      <th>Mov.</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -586,7 +658,9 @@ export const TournamentDetailViewPage: React.FC = () => {
                           return (
                             <td key={`cell-${group.name}-${rowIdx}-${colIdx}`}>
                               {versus
-                                ? `${versus.set1One}/${versus.set1Two} ${versus.set2One}/${versus.set2Two}${
+                                ? `${versus.set1One}/${versus.set1Two}${
+                                    versus.set2One !== 0 || versus.set2Two !== 0 ? ` ${versus.set2One}/${versus.set2Two}` : ''
+                                  }${
                                     versus.set3One !== 0 || versus.set3Two !== 0 ? ` [${versus.set3One} : ${versus.set3Two}]` : ''
                                   }${versus.isWalkover ? ' (W.O.)' : ''}`
                                 : 'NR'}
@@ -599,6 +673,7 @@ export const TournamentDetailViewPage: React.FC = () => {
                         <td>{playerInfo.id !== null ? (statsByPlayer.get(playerInfo.id)?.pj ?? 0) : '-'}</td>
                         <td>{playerInfo.id !== null ? (statsByPlayer.get(playerInfo.id)?.sets ?? 0) : '-'}</td>
                         <td>{playerInfo.id !== null ? (statsByPlayer.get(playerInfo.id)?.games ?? 0) : '-'}</td>
+                        <td>{playerInfo.id !== null ? (movementByPlayerId.get(playerInfo.id) ?? '-') : '-'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -785,6 +860,7 @@ export const TournamentDetailViewPage: React.FC = () => {
                             </td>
                           </tr>
                         );
+                        
                       })}
                     </tbody>
                   </table>
@@ -799,6 +875,20 @@ export const TournamentDetailViewPage: React.FC = () => {
           <Link to="/tournaments">Volver a torneos</Link>
         </p>
       </main>
+
+      {modalError && (
+        <div className="modal-overlay" onClick={() => setModalError(null)}>
+          <div className="modal-card card" onClick={(event) => event.stopPropagation()}>
+            <h3>Error</h3>
+            <p className="error-text">{modalError}</p>
+            <div className="modal-actions">
+              <button type="button" className="primary-btn" onClick={() => setModalError(null)}>
+                Entendido
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -104,13 +104,19 @@ class MatchResultController
             return;
         }
 
-        if ($set1PlayerOneGames === $set1PlayerTwoGames || $set2PlayerOneGames === $set2PlayerTwoGames) {
+        if ($set1PlayerOneGames === $set1PlayerTwoGames) {
             http_response_code(422);
-            echo json_encode(['error' => 'Set 1 y Set 2 deben tener ganador']);
+            echo json_encode(['error' => 'Set 1 debe tener ganador']);
             return;
         }
 
-        // Set 3 is optional: 0-0 means not played.
+        // Set 2 and Set 3 are optional: 0-0 means not played.
+        if ($set2PlayerOneGames === $set2PlayerTwoGames && $set2PlayerOneGames !== 0) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Set 2 debe tener ganador o quedar en 0-0']);
+            return;
+        }
+
         if ($set3PlayerOneGames === $set3PlayerTwoGames && $set3PlayerOneGames !== 0) {
             http_response_code(422);
             echo json_encode(['error' => 'Set 3 debe tener ganador o quedar en 0-0']);
