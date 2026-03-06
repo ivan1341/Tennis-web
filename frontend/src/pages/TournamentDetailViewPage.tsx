@@ -54,39 +54,13 @@ interface OrientedMatchResult {
   set3One: number;
   set3Two: number;
   isWalkover: boolean;
+  walkoverPlayerId: number | null;
 }
 
 const getPairKey = (playerOneId: number, playerTwoId: number): string => {
   const a = Math.min(playerOneId, playerTwoId);
   const b = Math.max(playerOneId, playerTwoId);
   return `${a}-${b}`;
-};
-
-const buildGroups = (tournament: Tournament, assignedPlayers: TournamentAssignedPlayer[]): GroupData[] => {
-  const groupsCount = Math.max(1, tournament.groups_count || 1);
-  const groupedPlayers = Array.from({ length: groupsCount }, (_, idx) =>
-    assignedPlayers
-      .filter((player) => player.group_number === idx + 1)
-      .map((player) => ({ id: player.user_id, name: player.name }))
-  );
-  const maxAssignedInGroup = groupedPlayers.reduce((max, players) => Math.max(max, players.length), 0);
-  const playersPerGroup = Math.max(
-    2,
-    maxAssignedInGroup,
-    Math.min(5, Math.ceil((tournament.participants_count || groupsCount * 2) / groupsCount))
-  );
-
-  return Array.from({ length: groupsCount }, (_, groupIndex) => ({
-    groupNumber: groupIndex + 1,
-    name: `Grupo ${groupIndex + 1}`,
-    players: [
-      ...groupedPlayers[groupIndex],
-      ...Array.from({ length: playersPerGroup - groupedPlayers[groupIndex].length }, () => ({
-        id: null,
-        name: 'Por definir'
-      }))
-    ]
-  }));
 };
 
 const buildGroupMatches = (group: GroupData): GroupMatch[] => {
@@ -108,6 +82,136 @@ const buildGroupMatches = (group: GroupData): GroupMatch[] => {
   return matches;
 };
 
+const buildGroupsForSelectedRound = (
+  tournament: Tournament,
+  assignedPlayers: TournamentAssignedPlayer[],
+  rounds: TournamentRound[],
+  selectedRoundData: TournamentRound | null,
+  allMatchResults: MatchResult[]
+): GroupData[] => {
+  const groupsCount = Math.max(1, tournament.groups_count || 1);
+  const usersById = new Map<number, string>();
+  assignedPlayers.forEach((player) => usersById.set(player.user_id, player.name));
+
+  const baseAssignments = new Map<number, number[]>();
+  for (let group = 1; group <= groupsCount; group += 1) {
+    baseAssignments.set(group, []);
+  }
+  assignedPlayers.forEach((player) => {
+    if (player.group_number >= 1 && player.group_number <= groupsCount) {
+      baseAssignments.get(player.group_number)?.push(player.user_id);
+    }
+  });
+
+  const firstGroupNumber = 1;
+  const lastGroupNumber = groupsCount;
+  const priorRounds = selectedRoundData
+    ? rounds
+        .filter((round) => round.round_number < selectedRoundData.round_number && round.end_date < selectedRoundData.start_date)
+        .sort((a, b) => a.round_number - b.round_number)
+    : [];
+
+  let currentAssignments = new Map<number, number[]>();
+  baseAssignments.forEach((value, key) => currentAssignments.set(key, [...value]));
+
+  priorRounds.forEach((round) => {
+    const upByGroup = new Map<number, number[]>();
+    const downByGroup = new Map<number, number[]>();
+
+    for (let groupNumber = 1; groupNumber <= groupsCount; groupNumber += 1) {
+      const ids = currentAssignments.get(groupNumber) ?? [];
+      const groupPlayers: GroupPlayer[] = ids.map((id) => ({ id, name: usersById.get(id) ?? `Jugador ${id}` }));
+      const statsByPlayer = new Map<number, PlayerStats>();
+      ids.forEach((id) => statsByPlayer.set(id, { pg: 0, pp: 0, pts: 0, pj: 0, sets: 0, games: 0 }));
+
+      const roundGroupResults = allMatchResults.filter(
+        (result) => result.round_number === round.round_number && result.group_number === groupNumber
+      );
+      const groupMatches = buildGroupMatches({ groupNumber, name: `Grupo ${groupNumber}`, players: groupPlayers });
+
+      groupMatches.forEach((match) => {
+        const playerOneId = match.playerOne.id as number;
+        const playerTwoId = match.playerTwo.id as number;
+        const playerOneStats = statsByPlayer.get(playerOneId);
+        const playerTwoStats = statsByPlayer.get(playerTwoId);
+        if (!playerOneStats || !playerTwoStats) return;
+
+        const result = getOrientedResult(roundGroupResults, playerOneId, playerTwoId);
+        if (!result) {
+          playerOneStats.pts -= 1;
+          playerTwoStats.pts -= 1;
+          return;
+        }
+
+        const summary = summarizeMatch(result);
+        playerOneStats.pj += 1;
+        playerTwoStats.pj += 1;
+        playerOneStats.sets += summary.setsOne;
+        playerTwoStats.sets += summary.setsTwo;
+        playerOneStats.games += summary.gamesOne;
+        playerTwoStats.games += summary.gamesTwo;
+
+        if (summary.setsOne > summary.setsTwo) {
+          playerOneStats.pg += 1;
+          playerTwoStats.pp += 1;
+          playerOneStats.pts += 3;
+          playerTwoStats.pts += result.walkoverPlayerId === playerTwoId ? 0 : 1;
+        } else {
+          playerTwoStats.pg += 1;
+          playerOneStats.pp += 1;
+          playerTwoStats.pts += 3;
+          playerOneStats.pts += result.walkoverPlayerId === playerOneId ? 0 : 1;
+        }
+      });
+
+      const rankedPlayers: RankedPlayer[] = ids
+        .map((id) => ({ id, name: usersById.get(id) ?? `Jugador ${id}`, stats: statsByPlayer.get(id)! }))
+        .sort((a, b) => compareRankedPlayers(a, b, roundGroupResults));
+
+      const topTwo = rankedPlayers.slice(0, 2).map((item) => item.id);
+      const bottomTwo = rankedPlayers.slice(Math.max(0, rankedPlayers.length - 2)).map((item) => item.id);
+
+      upByGroup.set(groupNumber, groupNumber === firstGroupNumber ? [] : topTwo);
+      downByGroup.set(groupNumber, groupNumber === lastGroupNumber ? [] : bottomTwo);
+    }
+
+    const nextAssignments = new Map<number, number[]>();
+    for (let groupNumber = 1; groupNumber <= groupsCount; groupNumber += 1) {
+      const current = currentAssignments.get(groupNumber) ?? [];
+      const leavingUp = new Set(upByGroup.get(groupNumber) ?? []);
+      const leavingDown = new Set(downByGroup.get(groupNumber) ?? []);
+      const staying = current.filter((id) => !leavingUp.has(id) && !leavingDown.has(id));
+      const incomingFromAbove = groupNumber > 1 ? downByGroup.get(groupNumber - 1) ?? [] : [];
+      const incomingFromBelow = groupNumber < groupsCount ? upByGroup.get(groupNumber + 1) ?? [] : [];
+      nextAssignments.set(groupNumber, [...incomingFromAbove, ...staying, ...incomingFromBelow]);
+    }
+
+    currentAssignments = nextAssignments;
+  });
+
+  const maxAssignedInGroup = Array.from(currentAssignments.values()).reduce((max, players) => Math.max(max, players.length), 0);
+  const playersPerGroup = Math.max(
+    2,
+    maxAssignedInGroup,
+    Math.min(5, Math.ceil((tournament.participants_count || groupsCount * 2) / groupsCount))
+  );
+
+  return Array.from({ length: groupsCount }, (_, groupIndex) => {
+    const groupNumber = groupIndex + 1;
+    const ids = currentAssignments.get(groupNumber) ?? [];
+    const players: GroupPlayer[] = ids.map((id) => ({ id, name: usersById.get(id) ?? `Jugador ${id}` }));
+    const placeholders = Array.from({ length: Math.max(0, playersPerGroup - players.length) }, () => ({
+      id: null,
+      name: 'Por definir'
+    }));
+    return {
+      groupNumber,
+      name: `Grupo ${groupNumber}`,
+      players: [...players, ...placeholders]
+    };
+  });
+};
+
 const getOrientedResult = (
   results: MatchResult[],
   playerOneId: number,
@@ -124,7 +228,8 @@ const getOrientedResult = (
       set2Two: existing.set2_player_two_games,
       set3One: existing.set3_player_one_games,
       set3Two: existing.set3_player_two_games,
-      isWalkover: Boolean(existing.is_walkover)
+      isWalkover: Boolean(existing.is_walkover),
+      walkoverPlayerId: existing.walkover_player_id
     };
   }
 
@@ -135,7 +240,8 @@ const getOrientedResult = (
     set2Two: existing.set2_player_one_games,
     set3One: existing.set3_player_two_games,
     set3Two: existing.set3_player_one_games,
-    isWalkover: Boolean(existing.is_walkover)
+    isWalkover: Boolean(existing.is_walkover),
+    walkoverPlayerId: existing.walkover_player_id
   };
 };
 
@@ -169,10 +275,14 @@ const hasDraftChanges = (
     set2Two: string;
     set3One: string;
     set3Two: string;
-    isWalkover: boolean;
+    isWalkoverPlayerOne: boolean;
+    isWalkoverPlayerTwo: boolean;
   },
-  existing: OrientedMatchResult | null
+  existing: OrientedMatchResult | null,
+  playerOneId: number,
+  playerTwoId: number
 ): boolean => {
+  const walkoverPlayerId = draft.isWalkoverPlayerOne ? 1 : draft.isWalkoverPlayerTwo ? 2 : 0;
   if (!existing) {
     return (
       draft.set1One.trim() !== '' ||
@@ -181,7 +291,7 @@ const hasDraftChanges = (
       draft.set2Two.trim() !== '' ||
       draft.set3One.trim() !== '' ||
       draft.set3Two.trim() !== '' ||
-      draft.isWalkover
+      walkoverPlayerId !== 0
     );
   }
 
@@ -193,7 +303,7 @@ const hasDraftChanges = (
     normalize(draft.set2Two) !== String(existing.set2Two) ||
     normalize(draft.set3One) !== String(existing.set3One) ||
     normalize(draft.set3Two) !== String(existing.set3Two) ||
-    draft.isWalkover !== existing.isWalkover
+    walkoverPlayerId !== (existing.walkoverPlayerId === null ? 0 : existing.walkoverPlayerId === playerOneId ? 1 : 2)
   );
 };
 
@@ -244,6 +354,7 @@ export const TournamentDetailViewPage: React.FC = () => {
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [assignedPlayers, setAssignedPlayers] = useState<TournamentAssignedPlayer[]>([]);
   const [rounds, setRounds] = useState<TournamentRound[]>([]);
+  const [allMatchResults, setAllMatchResults] = useState<MatchResult[]>([]);
   const [matchResults, setMatchResults] = useState<MatchResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -260,7 +371,8 @@ export const TournamentDetailViewPage: React.FC = () => {
         set2Two: string;
         set3One: string;
         set3Two: string;
-        isWalkover: boolean;
+        isWalkoverPlayerOne: boolean;
+        isWalkoverPlayerTwo: boolean;
       }
     >
   >({});
@@ -303,20 +415,29 @@ export const TournamentDetailViewPage: React.FC = () => {
 
   useEffect(() => {
     const loadResults = async () => {
-      if (!tournament || selectedRound === null) {
+      if (!tournament) {
+        setAllMatchResults([]);
         setMatchResults([]);
         return;
       }
       try {
-        const results = await getMatchResults(tournament.id, selectedRound);
-        setMatchResults(results);
+        const results = await getMatchResults(tournament.id);
+        setAllMatchResults(results);
       } catch (err) {
         setModalError((err as Error).message);
       }
     };
 
     void loadResults();
-  }, [tournament, selectedRound]);
+  }, [tournament]);
+
+  useEffect(() => {
+    if (selectedRound === null) {
+      setMatchResults([]);
+      return;
+    }
+    setMatchResults(allMatchResults.filter((result) => result.round_number === selectedRound));
+  }, [allMatchResults, selectedRound]);
 
   const getDraftForMatch = (
     playerOneId: number,
@@ -328,13 +449,28 @@ export const TournamentDetailViewPage: React.FC = () => {
     set2Two: string;
     set3One: string;
     set3Two: string;
-    isWalkover: boolean;
+    isWalkoverPlayerOne: boolean;
+    isWalkoverPlayerTwo: boolean;
   } => {
     const key = getPairKey(playerOneId, playerTwoId);
     if (resultDrafts[key]) return resultDrafts[key];
 
     const existing = getOrientedResult(matchResults, playerOneId, playerTwoId);
-    if (!existing) return { set1One: '', set1Two: '', set2One: '', set2Two: '', set3One: '', set3Two: '', isWalkover: false };
+    if (!existing) {
+      return {
+        set1One: '',
+        set1Two: '',
+        set2One: '',
+        set2Two: '',
+        set3One: '',
+        set3Two: '',
+        isWalkoverPlayerOne: false,
+        isWalkoverPlayerTwo: false
+      };
+    }
+
+    const walkoverPlayerOne = existing.walkoverPlayerId === playerOneId;
+    const walkoverPlayerTwo = existing.walkoverPlayerId === playerTwoId;
 
     return {
       set1One: String(existing.set1One),
@@ -343,7 +479,8 @@ export const TournamentDetailViewPage: React.FC = () => {
       set2Two: existing.set2One === 0 && existing.set2Two === 0 ? '' : String(existing.set2Two),
       set3One: existing.set3One === 0 && existing.set3Two === 0 ? '' : String(existing.set3One),
       set3Two: existing.set3One === 0 && existing.set3Two === 0 ? '' : String(existing.set3Two),
-      isWalkover: existing.isWalkover
+      isWalkoverPlayerOne: walkoverPlayerOne,
+      isWalkoverPlayerTwo: walkoverPlayerTwo
     };
   };
 
@@ -357,7 +494,8 @@ export const TournamentDetailViewPage: React.FC = () => {
       set2Two: string;
       set3One: string;
       set3Two: string;
-      isWalkover: boolean;
+      isWalkoverPlayerOne: boolean;
+      isWalkoverPlayerTwo: boolean;
     }
   ) => {
     const key = getPairKey(playerOneId, playerTwoId);
@@ -396,6 +534,12 @@ export const TournamentDetailViewPage: React.FC = () => {
       setModalError('Si capturas Set 2 o Set 3, debes ingresar ambos lados del set.');
       return;
     }
+    if (draft.isWalkoverPlayerOne && draft.isWalkoverPlayerTwo) {
+      setModalError('Solo un jugador puede marcarse como W.O.');
+      return;
+    }
+    const isWalkover = draft.isWalkoverPlayerOne || draft.isWalkoverPlayerTwo;
+    const walkoverPlayerId = draft.isWalkoverPlayerOne ? playerOneId : draft.isWalkoverPlayerTwo ? playerTwoId : null;
     const normalizedSet2One = draft.set2One.trim() === '' ? 0 : parsedSet2One;
     const normalizedSet2Two = draft.set2Two.trim() === '' ? 0 : parsedSet2Two;
     const normalizedSet3One = draft.set3One.trim() === '' ? 0 : parsedSet3One;
@@ -432,7 +576,8 @@ export const TournamentDetailViewPage: React.FC = () => {
       set2Two: normalizedSet2Two,
       set3One: normalizedSet3One,
       set3Two: normalizedSet3Two,
-      isWalkover: draft.isWalkover
+      isWalkover: isWalkover,
+      walkoverPlayerId: walkoverPlayerId
     });
     if (summary.setsOne === summary.setsTwo) {
       setModalError('Debe existir un ganador en sets');
@@ -456,13 +601,14 @@ export const TournamentDetailViewPage: React.FC = () => {
           set2_player_two_games: normalizedSet2Two,
           set3_player_one_games: normalizedSet3One,
           set3_player_two_games: normalizedSet3Two,
-          is_walkover: draft.isWalkover
+          is_walkover: isWalkover,
+          walkover_player_id: walkoverPlayerId
         },
         token
       );
 
-      const refreshed = await getMatchResults(tournament.id, selectedRound);
-      setMatchResults(refreshed);
+      const refreshed = await getMatchResults(tournament.id);
+      setAllMatchResults(refreshed);
       setSuccess('Resultado guardado correctamente');
     } catch (err) {
       setModalError((err as Error).message);
@@ -490,8 +636,8 @@ export const TournamentDetailViewPage: React.FC = () => {
     );
   }
 
-  const groups = buildGroups(tournament, assignedPlayers);
   const selectedRoundData = rounds.find((round) => round.round_number === selectedRound) ?? null;
+  const groups = buildGroupsForSelectedRound(tournament, assignedPlayers, rounds, selectedRoundData, allMatchResults);
   const todayIso = new Date().toISOString().slice(0, 10);
   const isSelectedRoundClosed = selectedRoundData !== null && selectedRoundData.end_date < todayIso;
   const groupNumbers = groups.map((group) => group.groupNumber);
@@ -596,12 +742,12 @@ export const TournamentDetailViewPage: React.FC = () => {
                 playerOneStats.pg += 1;
                 playerTwoStats.pp += 1;
                 playerOneStats.pts += 3;
-                playerTwoStats.pts += result.isWalkover ? 0 : 1;
+                playerTwoStats.pts += result.walkoverPlayerId === playerTwoId ? 0 : 1;
               } else {
                 playerTwoStats.pg += 1;
                 playerOneStats.pp += 1;
                 playerTwoStats.pts += 3;
-                playerOneStats.pts += result.isWalkover ? 0 : 1;
+                playerOneStats.pts += result.walkoverPlayerId === playerOneId ? 0 : 1;
               }
             });
 
@@ -706,7 +852,7 @@ export const TournamentDetailViewPage: React.FC = () => {
                           user?.role === 'admin' ||
                           (existing === null && (user?.id === playerOneId || user?.id === playerTwoId));
                         const draft = getDraftForMatch(playerOneId, playerTwoId);
-                        const hasChanges = hasDraftChanges(draft, existing);
+                        const hasChanges = hasDraftChanges(draft, existing, playerOneId, playerTwoId);
                         const actionLabel = existing !== null && user?.role !== 'admin' ? 'Enviado' : 'Guardar';
 
                         return (
@@ -728,7 +874,8 @@ export const TournamentDetailViewPage: React.FC = () => {
                                       set2Two: draft.set2Two,
                                       set3One: draft.set3One,
                                       set3Two: draft.set3Two,
-                                      isWalkover: draft.isWalkover
+                                      isWalkoverPlayerOne: draft.isWalkoverPlayerOne,
+                                      isWalkoverPlayerTwo: draft.isWalkoverPlayerTwo
                                     })
                                   }
                                 />
@@ -746,7 +893,8 @@ export const TournamentDetailViewPage: React.FC = () => {
                                       set2Two: draft.set2Two,
                                       set3One: draft.set3One,
                                       set3Two: draft.set3Two,
-                                      isWalkover: draft.isWalkover
+                                      isWalkoverPlayerOne: draft.isWalkoverPlayerOne,
+                                      isWalkoverPlayerTwo: draft.isWalkoverPlayerTwo
                                     })
                                   }
                                 />
@@ -767,7 +915,8 @@ export const TournamentDetailViewPage: React.FC = () => {
                                       set2Two: draft.set2Two,
                                       set3One: draft.set3One,
                                       set3Two: draft.set3Two,
-                                      isWalkover: draft.isWalkover
+                                      isWalkoverPlayerOne: draft.isWalkoverPlayerOne,
+                                      isWalkoverPlayerTwo: draft.isWalkoverPlayerTwo
                                     })
                                   }
                                 />
@@ -785,7 +934,8 @@ export const TournamentDetailViewPage: React.FC = () => {
                                       set2Two: event.target.value,
                                       set3One: draft.set3One,
                                       set3Two: draft.set3Two,
-                                      isWalkover: draft.isWalkover
+                                      isWalkoverPlayerOne: draft.isWalkoverPlayerOne,
+                                      isWalkoverPlayerTwo: draft.isWalkoverPlayerTwo
                                     })
                                   }
                                 />
@@ -806,7 +956,8 @@ export const TournamentDetailViewPage: React.FC = () => {
                                       set2Two: draft.set2Two,
                                       set3One: event.target.value,
                                       set3Two: draft.set3Two,
-                                      isWalkover: draft.isWalkover
+                                      isWalkoverPlayerOne: draft.isWalkoverPlayerOne,
+                                      isWalkoverPlayerTwo: draft.isWalkoverPlayerTwo
                                     })
                                   }
                                 />
@@ -824,29 +975,51 @@ export const TournamentDetailViewPage: React.FC = () => {
                                       set2Two: draft.set2Two,
                                       set3One: draft.set3One,
                                       set3Two: event.target.value,
-                                      isWalkover: draft.isWalkover
+                                      isWalkoverPlayerOne: draft.isWalkoverPlayerOne,
+                                      isWalkoverPlayerTwo: draft.isWalkoverPlayerTwo
                                     })
                                   }
                                 />
                               </div>
                             </td>
                             <td>
-                              <input
-                                type="checkbox"
-                                checked={draft.isWalkover}
-                                disabled={!canEdit}
-                                onChange={(event) =>
-                                  updateDraft(playerOneId, playerTwoId, {
-                                    set1One: draft.set1One,
-                                    set1Two: draft.set1Two,
-                                    set2One: draft.set2One,
-                                    set2Two: draft.set2Two,
-                                    set3One: draft.set3One,
-                                    set3Two: draft.set3Two,
-                                    isWalkover: event.target.checked
-                                  })
-                                }
-                              />
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <input
+                                  type="checkbox"
+                                  checked={draft.isWalkoverPlayerOne}
+                                  disabled={!canEdit}
+                                  onChange={(event) =>
+                                    updateDraft(playerOneId, playerTwoId, {
+                                      set1One: draft.set1One,
+                                      set1Two: draft.set1Two,
+                                      set2One: draft.set2One,
+                                      set2Two: draft.set2Two,
+                                      set3One: draft.set3One,
+                                      set3Two: draft.set3Two,
+                                      isWalkoverPlayerOne: event.target.checked,
+                                      isWalkoverPlayerTwo: event.target.checked ? false : draft.isWalkoverPlayerTwo
+                                    })
+                                  }
+                                />
+                                <span>/</span>
+                                <input
+                                  type="checkbox"
+                                  checked={draft.isWalkoverPlayerTwo}
+                                  disabled={!canEdit}
+                                  onChange={(event) =>
+                                    updateDraft(playerOneId, playerTwoId, {
+                                      set1One: draft.set1One,
+                                      set1Two: draft.set1Two,
+                                      set2One: draft.set2One,
+                                      set2Two: draft.set2Two,
+                                      set3One: draft.set3One,
+                                      set3Two: draft.set3Two,
+                                      isWalkoverPlayerOne: event.target.checked ? false : draft.isWalkoverPlayerOne,
+                                      isWalkoverPlayerTwo: event.target.checked
+                                    })
+                                  }
+                                />
+                              </div>
                             </td>
                             <td>
                               <button

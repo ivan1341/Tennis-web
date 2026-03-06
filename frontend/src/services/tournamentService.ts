@@ -31,6 +31,7 @@ export interface MatchResult {
   set3_player_one_games: number;
   set3_player_two_games: number;
   is_walkover: boolean;
+  walkover_player_id: number | null;
   player_one_name: string;
   player_two_name: string;
 }
@@ -72,9 +73,13 @@ export async function getTournamentRounds(tournamentId: number): Promise<Tournam
   return response.rounds;
 }
 
-export async function getMatchResults(tournamentId: number, roundNumber: number): Promise<MatchResult[]> {
+export async function getMatchResults(tournamentId: number, roundNumber?: number): Promise<MatchResult[]> {
+  const query =
+    typeof roundNumber === 'number' && roundNumber > 0
+      ? `/api/match-results?tournament_id=${tournamentId}&round_number=${roundNumber}`
+      : `/api/match-results?tournament_id=${tournamentId}`;
   const response = await apiFetch<{ results: MatchResult[] }>(
-    `/api/match-results?tournament_id=${tournamentId}&round_number=${roundNumber}`,
+    query,
     { method: 'GET' }
   );
   return response.results;
@@ -93,6 +98,7 @@ export interface SaveMatchResultInput {
   set3_player_one_games: number;
   set3_player_two_games: number;
   is_walkover: boolean;
+  walkover_player_id: number | null;
 }
 
 export async function saveMatchResult(input: SaveMatchResultInput, token: string): Promise<void> {

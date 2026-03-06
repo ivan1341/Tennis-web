@@ -55,12 +55,14 @@ CREATE TABLE IF NOT EXISTS match_results (
     set3_player_one_games INT UNSIGNED NOT NULL,
     set3_player_two_games INT UNSIGNED NOT NULL,
     is_walkover TINYINT(1) NOT NULL DEFAULT 0,
+    walkover_player_id INT UNSIGNED NULL,
     edited_by_user_id INT UNSIGNED NOT NULL,
     created_at TIMESTAMP NULL DEFAULT NULL,
     updated_at TIMESTAMP NULL DEFAULT NULL,
     CONSTRAINT fk_match_results_tournament_id FOREIGN KEY (tournament_id) REFERENCES tournaments(id) ON DELETE CASCADE,
     CONSTRAINT fk_match_results_player_one_id FOREIGN KEY (player_one_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_match_results_player_two_id FOREIGN KEY (player_two_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_match_results_walkover_player_id FOREIGN KEY (walkover_player_id) REFERENCES users(id) ON DELETE SET NULL,
     CONSTRAINT fk_match_results_edited_by_user_id FOREIGN KEY (edited_by_user_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT uq_match_results_unique_match UNIQUE (tournament_id, round_number, group_number, player_one_id, player_two_id)
 );
