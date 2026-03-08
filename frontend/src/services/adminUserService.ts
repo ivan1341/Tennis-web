@@ -7,6 +7,11 @@ export interface AdminUser {
   role: 'admin' | 'user';
 }
 
+const normalizeAdminUser = (user: AdminUser): AdminUser => ({
+  ...user,
+  id: Number(user.id)
+});
+
 export interface CreateAdminUserInput {
   name: string;
   phone: string;
@@ -26,23 +31,25 @@ export async function getAdminUsers(token: string): Promise<AdminUser[]> {
     method: 'GET',
     token
   });
-  return response.users;
+  return response.users.map(normalizeAdminUser);
 }
 
 export async function createAdminUser(input: CreateAdminUserInput, token: string): Promise<AdminUser> {
-  return apiFetch<AdminUser>('/api/admin/users', {
+  const response = await apiFetch<AdminUser>('/api/admin/users', {
     method: 'POST',
     token,
     body: JSON.stringify(input)
   });
+  return normalizeAdminUser(response);
 }
 
 export async function updateAdminUser(input: UpdateAdminUserInput, token: string): Promise<AdminUser> {
-  return apiFetch<AdminUser>('/api/admin/users', {
+  const response = await apiFetch<AdminUser>('/api/admin/users', {
     method: 'PUT',
     token,
     body: JSON.stringify(input)
   });
+  return normalizeAdminUser(response);
 }
 
 export async function resetUserPassword(

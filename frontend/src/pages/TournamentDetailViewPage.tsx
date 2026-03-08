@@ -697,7 +697,7 @@ export const TournamentDetailViewPage: React.FC = () => {
         {success && <p className="success-text">{success}</p>}
 
         <h3 className="round-title">Ronda {selectedRound ?? '-'}</h3>
-        <p className="muted">
+        <p className="muted-gray">
           PG: ganados, PP: perdidos, PTS: 3 por victoria y 1 por derrota (W.O. deja 0 al perdedor, NR resta 1 al cerrar ronda), PJ: jugados, S: sets, J: juegos.
         </p>
 

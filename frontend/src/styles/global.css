@@ -4,8 +4,10 @@
   --bg-card-soft: #0a7fa5;
   --text-main: #022b3a;
   --text-light: #f5f9fc;
+  --text-disabled: #a0a0a0;
   --accent: #f9b233;
   --error: #d61341;
+  --gray: #808080;
   --border-radius-lg: 16px;
   --border-radius-md: 12px;
 }
@@ -213,6 +215,12 @@ button {
   border: 1px solid rgba(255, 255, 255, 0.6);
 }
 
+.secondary-btn:disabled {
+  background-color: transparent;
+  color: var(--text-disabled);
+  border: 1px solid var(--text-disabled);
+}
+
 .link-btn {
   text-decoration: none;
   margin-left: 0.5rem;
@@ -222,6 +230,10 @@ button {
   font-size: 0.85rem;
   margin-top: 0.75rem;
   color: #d6e8f2;
+}
+
+.muted-gray {
+  color: var(--gray);
 }
 
 .error-text {

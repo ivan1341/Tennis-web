@@ -10,6 +10,62 @@ export interface Tournament {
   rounds_count: number;
 }
 
+const normalizeTournament = (item: Tournament): Tournament => ({
+  ...item,
+  id: Number(item.id),
+  participants_count: Number(item.participants_count),
+  groups_count: Number(item.groups_count),
+  rounds_count: Number(item.rounds_count)
+});
+
+const toNullableNumber = (value: unknown): number | null => {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isNaN(parsed) ? null : parsed;
+};
+
+const toBoolean = (value: unknown): boolean => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value === 1;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    return normalized === '1' || normalized === 'true';
+  }
+  return false;
+};
+
+const normalizeTournamentAssignedPlayer = (item: TournamentAssignedPlayer): TournamentAssignedPlayer => ({
+  ...item,
+  tournament_id: Number(item.tournament_id),
+  user_id: Number(item.user_id),
+  group_number: Number(item.group_number)
+});
+
+const normalizeTournamentRound = (item: TournamentRound): TournamentRound => ({
+  ...item,
+  id: Number(item.id),
+  tournament_id: Number(item.tournament_id),
+  round_number: Number(item.round_number)
+});
+
+const normalizeMatchResult = (item: MatchResult): MatchResult => ({
+  ...item,
+  id: Number(item.id),
+  tournament_id: Number(item.tournament_id),
+  round_number: Number(item.round_number),
+  group_number: Number(item.group_number),
+  player_one_id: Number(item.player_one_id),
+  player_two_id: Number(item.player_two_id),
+  set1_player_one_games: Number(item.set1_player_one_games),
+  set1_player_two_games: Number(item.set1_player_two_games),
+  set2_player_one_games: Number(item.set2_player_one_games),
+  set2_player_two_games: Number(item.set2_player_two_games),
+  set3_player_one_games: Number(item.set3_player_one_games),
+  set3_player_two_games: Number(item.set3_player_two_games),
+  is_walkover: toBoolean(item.is_walkover),
+  walkover_player_id: toNullableNumber(item.walkover_player_id)
+});
+
 export interface TournamentAssignedPlayer {
   tournament_id: number;
   user_id: number;
@@ -48,7 +104,7 @@ export async function getTournaments(): Promise<Tournament[]> {
   const response = await apiFetch<{ tournaments: Tournament[] }>('/api/tournaments', {
     method: 'GET'
   });
-  return response.tournaments;
+  return response.tournaments.map(normalizeTournament);
 }
 
 export async function getTournamentById(id: number): Promise<Tournament | null> {
@@ -62,7 +118,7 @@ export async function getTournamentPlayers(tournamentId: number): Promise<Tourna
     `/api/tournament-players?tournament_id=${tournamentId}`,
     { method: 'GET' }
   );
-  return response.players;
+  return response.players.map(normalizeTournamentAssignedPlayer);
 }
 
 export async function getTournamentRounds(tournamentId: number): Promise<TournamentRound[]> {
@@ -70,7 +126,7 @@ export async function getTournamentRounds(tournamentId: number): Promise<Tournam
     `/api/tournament-rounds?tournament_id=${tournamentId}`,
     { method: 'GET' }
   );
-  return response.rounds;
+  return response.rounds.map(normalizeTournamentRound);
 }
 
 export async function getMatchResults(tournamentId: number, roundNumber?: number): Promise<MatchResult[]> {
@@ -82,7 +138,7 @@ export async function getMatchResults(tournamentId: number, roundNumber?: number
     query,
     { method: 'GET' }
   );
-  return response.results;
+  return response.results.map(normalizeMatchResult);
 }
 
 export interface SaveMatchResultInput {
@@ -121,7 +177,7 @@ export async function createTournamentRound(input: CreateTournamentRoundInput, t
     token,
     body: JSON.stringify(input)
   });
-  return response.round;
+  return normalizeTournamentRound(response.round);
 }
 
 export interface CreateTournamentInput {
@@ -143,7 +199,7 @@ export async function createTournament(
     token,
     body: JSON.stringify(input)
   });
-  return response.tournament;
+  return normalizeTournament(response.tournament);
 }
 
 export interface UpdateTournamentInput {
@@ -165,6 +221,6 @@ export async function updateTournament(
     token,
     body: JSON.stringify(input)
   });
-  return response.tournament;
+  return normalizeTournament(response.tournament);
 }
 

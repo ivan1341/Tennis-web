@@ -6,11 +6,22 @@ interface AuthResponse {
   user: AuthUser;
 }
 
+const normalizeAuthUser = (user: AuthUser): AuthUser => ({
+  ...user,
+  id: Number(user.id)
+});
+
+const normalizeAuthResponse = (response: AuthResponse): AuthResponse => ({
+  ...response,
+  user: normalizeAuthUser(response.user)
+});
+
 export async function loginRequest(phone: string, password: string): Promise<AuthResponse> {
-  return apiFetch<AuthResponse>('/api/auth/login', {
+  const response = await apiFetch<AuthResponse>('/api/auth/login', {
     method: 'POST',
     body: JSON.stringify({ phone, password })
   });
+  return normalizeAuthResponse(response);
 }
 
 export async function registerRequest(
@@ -18,10 +29,11 @@ export async function registerRequest(
   phone: string,
   password: string
 ): Promise<AuthResponse> {
-  return apiFetch<AuthResponse>('/api/auth/register', {
+  const response = await apiFetch<AuthResponse>('/api/auth/register', {
     method: 'POST',
     body: JSON.stringify({ name, phone, password })
   });
+  return normalizeAuthResponse(response);
 }
 
 export async function getMeRequest(token: string): Promise<AuthUser> {
@@ -29,6 +41,6 @@ export async function getMeRequest(token: string): Promise<AuthUser> {
     method: 'GET',
     token
   });
-  return response.user;
+  return normalizeAuthUser(response.user);
 }
 
