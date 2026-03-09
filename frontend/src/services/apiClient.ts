@@ -6,9 +6,10 @@ export interface ApiOptions extends RequestInit {
 
 export async function apiFetch<T>(path: string, options: ApiOptions = {}): Promise<T> {
   const url = `${API_BASE_URL}${path}`;
+  const isFormDataBody = typeof FormData !== 'undefined' && options.body instanceof FormData;
 
   const headers: HeadersInit = {
-    'Content-Type': 'application/json',
+    ...(isFormDataBody ? {} : { 'Content-Type': 'application/json' }),
     ...(options.headers ?? {})
   };
 

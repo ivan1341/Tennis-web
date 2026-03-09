@@ -5,7 +5,7 @@ import { getTournaments, type Tournament } from '../services/tournamentService';
 import { AppHeader } from '../components/AppHeader';
 
 export const TournamentsPage: React.FC = () => {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -15,7 +15,7 @@ export const TournamentsPage: React.FC = () => {
       setLoading(true);
       setError(null);
       try {
-        const data = await getTournaments();
+        const data = await getTournaments(token);
         setTournaments(data);
       } catch (err) {
         setError((err as Error).message);
@@ -24,7 +24,7 @@ export const TournamentsPage: React.FC = () => {
       }
     };
     void load();
-  }, []);
+  }, [token]);
 
   return (
     <div className="app-shell">

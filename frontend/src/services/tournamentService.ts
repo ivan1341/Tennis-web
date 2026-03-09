@@ -8,6 +8,7 @@ export interface Tournament {
   participants_count: number;
   groups_count: number;
   rounds_count: number;
+  regulation_pdf_url?: string | null;
 }
 
 const normalizeTournament = (item: Tournament): Tournament => ({
@@ -16,6 +17,8 @@ const normalizeTournament = (item: Tournament): Tournament => ({
   participants_count: Number(item.participants_count),
   groups_count: Number(item.groups_count),
   rounds_count: Number(item.rounds_count)
+  ,
+  regulation_pdf_url: item.regulation_pdf_url ?? null
 });
 
 const toNullableNumber = (value: unknown): number | null => {
@@ -38,7 +41,8 @@ const normalizeTournamentAssignedPlayer = (item: TournamentAssignedPlayer): Tour
   ...item,
   tournament_id: Number(item.tournament_id),
   user_id: Number(item.user_id),
-  group_number: Number(item.group_number)
+  group_number: Number(item.group_number),
+  position_index: Number(item.position_index)
 });
 
 const normalizeTournamentRound = (item: TournamentRound): TournamentRound => ({
@@ -70,6 +74,7 @@ export interface TournamentAssignedPlayer {
   tournament_id: number;
   user_id: number;
   group_number: number;
+  position_index: number;
   name: string;
 }
 
@@ -100,15 +105,16 @@ export interface TournamentRound {
   end_date: string;
 }
 
-export async function getTournaments(): Promise<Tournament[]> {
+export async function getTournaments(token?: string | null): Promise<Tournament[]> {
   const response = await apiFetch<{ tournaments: Tournament[] }>('/api/tournaments', {
-    method: 'GET'
+    method: 'GET',
+    token
   });
   return response.tournaments.map(normalizeTournament);
 }
 
-export async function getTournamentById(id: number): Promise<Tournament | null> {
-  const tournaments = await getTournaments();
+export async function getTournamentById(id: number, token?: string | null): Promise<Tournament | null> {
+  const tournaments = await getTournaments(token);
   const tournament = tournaments.find((item) => item.id === id);
   return tournament ?? null;
 }
@@ -171,6 +177,15 @@ export interface CreateTournamentRoundInput {
   end_date: string;
 }
 
+export interface SyncTournamentPlayersInput {
+  tournament_id: number;
+  players: Array<{
+    user_id: number;
+    group_number: number;
+    position_index: number;
+  }>;
+}
+
 export async function createTournamentRound(input: CreateTournamentRoundInput, token: string): Promise<TournamentRound> {
   const response = await apiFetch<{ round: TournamentRound }>('/api/admin/tournament-rounds', {
     method: 'POST',
@@ -178,6 +193,14 @@ export async function createTournamentRound(input: CreateTournamentRoundInput, t
     body: JSON.stringify(input)
   });
   return normalizeTournamentRound(response.round);
+}
+
+export async function syncTournamentPlayers(input: SyncTournamentPlayersInput, token: string): Promise<void> {
+  await apiFetch<{ message: string }>('/api/admin/tournament-players/sync', {
+    method: 'PUT',
+    token,
+    body: JSON.stringify(input)
+  });
 }
 
 export interface CreateTournamentInput {
@@ -222,5 +245,21 @@ export async function updateTournament(
     body: JSON.stringify(input)
   });
   return normalizeTournament(response.tournament);
+}
+
+export async function uploadTournamentRegulation(
+  tournamentId: number,
+  file: File,
+  token: string
+): Promise<{ regulation_pdf_url: string }> {
+  const form = new FormData();
+  form.append('tournament_id', String(tournamentId));
+  form.append('regulation_pdf', file);
+
+  return apiFetch<{ regulation_pdf_url: string }>('/api/admin/tournament-regulations', {
+    method: 'POST',
+    token,
+    body: form
+  });
 }
 

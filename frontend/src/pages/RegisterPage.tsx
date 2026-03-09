@@ -11,9 +11,17 @@ export const RegisterPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const sanitizePhone = (value: string): string => value.replace(/\D/g, '').slice(0, 10);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    if (!/^\d{1,10}$/.test(phone)) {
+      setError('El teléfono debe contener solo números y máximo 10 dígitos.');
+      return;
+    }
+
     setLoading(true);
     try {
       await register(name, phone, password);
@@ -47,7 +55,9 @@ export const RegisterPage: React.FC = () => {
             <input
               type="tel"
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              inputMode="numeric"
+              maxLength={10}
+              onChange={(e) => setPhone(sanitizePhone(e.target.value))}
               required
             />
           </label>

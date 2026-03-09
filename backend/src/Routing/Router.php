@@ -84,7 +84,12 @@ class Router
                     }
                 }
 
-                $input = json_decode(file_get_contents('php://input') ?: '[]', true) ?? [];
+                $contentType = $_SERVER['CONTENT_TYPE'] ?? '';
+                if (stripos($contentType, 'multipart/form-data') !== false) {
+                    $input = $_POST;
+                } else {
+                    $input = json_decode(file_get_contents('php://input') ?: '[]', true) ?? [];
+                }
 
                 if (is_array($handler) && is_string($handler[0])) {
                     $className = $handler[0];

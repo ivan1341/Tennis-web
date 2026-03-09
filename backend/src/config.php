@@ -44,3 +44,5 @@ define('DB_PASS', configValue('DB_PASS', '', $localConfig));
 define('DB_CHARSET', 'utf8mb4');
 
 define('TOKEN_TTL_HOURS', (int)configValue('TOKEN_TTL_HOURS', '12', $localConfig));
+define('APP_STORAGE_DIR', configValue('APP_STORAGE_DIR', dirname(__DIR__) . '/storage', $localConfig));
+define('MAX_REGULATION_PDF_BYTES', (int)configValue('MAX_REGULATION_PDF_BYTES', '10485760', $localConfig));

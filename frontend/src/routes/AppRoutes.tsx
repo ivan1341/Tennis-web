@@ -7,6 +7,7 @@ import { TournamentDetailViewPage } from '../pages/TournamentDetailViewPage';
 import { AddTournamentPage } from '../pages/AddTournamentPage';
 import { EditTournamentPage } from '../pages/EditTournamentPage';
 import { AdminUsersPage } from '../pages/AdminUsersPage';
+import { AdminSettingsPage } from '../pages/AdminSettingsPage';
 import { useAuth } from '../context/AuthContext';
 
 const PrivateRoute: React.FC<{ children: React.ReactElement }> = ({ children }) => {
@@ -80,6 +81,14 @@ export const AppRoutes: React.FC = () => {
         element={
           <AdminRoute>
             <AdminUsersPage />
+          </AdminRoute>
+        }
+      />
+      <Route
+        path="/admin/settings"
+        element={
+          <AdminRoute>
+            <AdminSettingsPage />
           </AdminRoute>
         }
       />

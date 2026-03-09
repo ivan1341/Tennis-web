@@ -25,6 +25,15 @@ CREATE TABLE IF NOT EXISTS tournaments (
     participants_count INT UNSIGNED DEFAULT 0,
     groups_count INT UNSIGNED DEFAULT 0,
     rounds_count INT UNSIGNED DEFAULT 0,
+    regulation_pdf_path VARCHAR(255) NULL,
+    created_at TIMESTAMP NULL DEFAULT NULL,
+    updated_at TIMESTAMP NULL DEFAULT NULL
+);
+
+CREATE TABLE IF NOT EXISTS app_settings (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    setting_key VARCHAR(100) NOT NULL UNIQUE,
+    setting_value TEXT NOT NULL,
     created_at TIMESTAMP NULL DEFAULT NULL,
     updated_at TIMESTAMP NULL DEFAULT NULL
 );
@@ -34,6 +43,7 @@ CREATE TABLE IF NOT EXISTS tournament_players (
     tournament_id INT UNSIGNED NOT NULL,
     user_id INT UNSIGNED NOT NULL,
     group_number INT UNSIGNED NOT NULL,
+    position_index INT UNSIGNED NOT NULL DEFAULT 1,
     created_at TIMESTAMP NULL DEFAULT NULL,
     updated_at TIMESTAMP NULL DEFAULT NULL,
     CONSTRAINT fk_tournament_players_tournament_id FOREIGN KEY (tournament_id) REFERENCES tournaments(id) ON DELETE CASCADE,

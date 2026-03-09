@@ -73,6 +73,22 @@ body {
   font-size: 0.9rem;
 }
 
+
+.app-nav-link-contacto {
+  color: var(--text-light);
+  text-decoration: none;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.9rem;
+  margin-top:1rem;
+  display: inline-block;
+}
+
+.app-nav-link-btn {
+  background: transparent;
+}
+
 .hamburger-btn {
   display: none;
   border: 1px solid rgba(255, 255, 255, 0.35);
@@ -388,6 +404,20 @@ a {
   font-size: 0.9rem;
 }
 
+.tournament-regulation-section {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.tournament-regulation-section h4 {
+  margin: 0 0 0.5rem;
+}
+
+.file-upload-label input[type='file'] {
+  margin-top: 0.35rem;
+}
+
 .round-create-form {
   margin-top: 1rem;
   padding-top: 1rem;
@@ -459,6 +489,74 @@ a {
 
 .results-table input {
   width: 80px;
+}
+
+.edit-rounds-list {
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+}
+
+.edit-groups-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.edit-group-card {
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 12px;
+  padding: 0.6rem;
+  min-height: 120px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.edit-group-card h4 {
+  margin: 0 0 0.5rem;
+}
+
+.edit-group-list {
+  margin: 0;
+  padding-left: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.edit-group-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 8px;
+  padding: 0.35rem 0.45rem;
+  cursor: move;
+}
+
+.edit-item-actions {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.snackbar {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 1200;
+  max-width: min(90vw, 420px);
+  padding: 0.8rem 1rem;
+  border-radius: 10px;
+  color: #fff;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+}
+
+.snackbar-error {
+  background: #b4233b;
+}
+
+.snackbar-success {
+  background: #1f7a35;
 }
 
 @media (max-width: 900px) {

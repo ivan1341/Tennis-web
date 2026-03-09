@@ -20,18 +20,45 @@ class TournamentController
         $this->user = $user;
     }
 
+    private function buildRegulationUrl(int $tournamentId): string
+    {
+        $host = (string)($_SERVER['HTTP_HOST'] ?? '');
+        $path = sprintf('/api/tournament-regulations/file?tournament_id=%d', $tournamentId);
+        if ($host === '') {
+            return $path;
+        }
+        $https = (string)($_SERVER['HTTPS'] ?? '');
+        $scheme = ($https !== '' && $https !== 'off') ? 'https' : 'http';
+        return sprintf('%s://%s%s', $scheme, $host, $path);
+    }
+
     /**
      * @param array<string, mixed> $input
      */
     public function index(array $input): void
     {
         $pdo = Database::getConnection();
-        $stmt = $pdo->query(
-            'SELECT id, name, start_date, end_date, participants_count, groups_count, rounds_count
-             FROM tournaments
-             ORDER BY start_date DESC'
-        );
-        $tournaments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if ($this->user !== null && ($this->user['role'] ?? null) === 'user') {
+            $stmt = $pdo->prepare(
+                'SELECT DISTINCT t.id, t.name, t.start_date, t.end_date, t.participants_count, t.groups_count, t.rounds_count, t.regulation_pdf_path
+                 FROM tournaments t
+                 INNER JOIN tournament_players tp ON tp.tournament_id = t.id
+                 WHERE tp.user_id = :user_id
+                 ORDER BY t.start_date DESC'
+            );
+            $stmt->execute(['user_id' => (int)$this->user['id']]);
+        } else {
+            $stmt = $pdo->query(
+                'SELECT id, name, start_date, end_date, participants_count, groups_count, rounds_count, regulation_pdf_path
+                 FROM tournaments
+                 ORDER BY start_date DESC'
+            );
+        }
+        $tournaments = array_map(function (array $item): array {
+            $path = (string)($item['regulation_pdf_path'] ?? '');
+            $item['regulation_pdf_url'] = $path !== '' ? $this->buildRegulationUrl((int)$item['id']) : null;
+            return $item;
+        }, $stmt->fetchAll(PDO::FETCH_ASSOC));
 
         http_response_code(200);
         echo json_encode(['tournaments' => $tournaments]);
@@ -51,11 +78,11 @@ class TournamentController
 
         $pdo = Database::getConnection();
         $stmt = $pdo->prepare(
-            'SELECT tp.tournament_id, tp.user_id, tp.group_number, u.name
+            'SELECT tp.tournament_id, tp.user_id, tp.group_number, tp.position_index, u.name
              FROM tournament_players tp
              INNER JOIN users u ON u.id = tp.user_id
              WHERE tp.tournament_id = :tournament_id
-             ORDER BY tp.group_number ASC, u.name ASC'
+             ORDER BY tp.group_number ASC, tp.position_index ASC, u.name ASC'
         );
         $stmt->execute(['tournament_id' => $tournamentId]);
 
@@ -197,6 +224,14 @@ class TournamentController
         }
 
         $pdo = Database::getConnection();
+        $existsStmt = $pdo->prepare('SELECT id FROM tournaments WHERE id = :id');
+        $existsStmt->execute(['id' => $id]);
+        if (!$existsStmt->fetch()) {
+            http_response_code(404);
+            echo json_encode(['error' => 'Torneo no encontrado']);
+            return;
+        }
+
         $stmt = $pdo->prepare(
             'UPDATE tournaments
              SET name = :name,
@@ -217,12 +252,6 @@ class TournamentController
             'groups_count' => $groups,
             'rounds_count' => $rounds,
         ]);
-
-        if ($stmt->rowCount() === 0) {
-            http_response_code(404);
-            echo json_encode(['error' => 'Torneo no encontrado']);
-            return;
-        }
 
         http_response_code(200);
         echo json_encode([

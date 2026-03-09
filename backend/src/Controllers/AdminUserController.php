@@ -20,6 +20,11 @@ class AdminUserController
         $this->user = $user;
     }
 
+    private function isValidPhone(string $phone): bool
+    {
+        return (bool)preg_match('/^\d{1,10}$/', $phone);
+    }
+
     /**
      * @param array<string, mixed> $input
      */
@@ -39,6 +44,11 @@ class AdminUserController
         if ($name === '' || $phone === '' || $password === '') {
             http_response_code(422);
             echo json_encode(['error' => 'Nombre, teléfono y contraseña son obligatorios']);
+            return;
+        }
+        if (!$this->isValidPhone($phone)) {
+            http_response_code(422);
+            echo json_encode(['error' => 'El teléfono debe contener solo números y máximo 10 dígitos']);
             return;
         }
 
@@ -121,6 +131,11 @@ class AdminUserController
         if ($userId <= 0 || $name === '' || $phone === '') {
             http_response_code(422);
             echo json_encode(['error' => 'id, nombre y teléfono son obligatorios']);
+            return;
+        }
+        if (!$this->isValidPhone($phone)) {
+            http_response_code(422);
+            echo json_encode(['error' => 'El teléfono debe contener solo números y máximo 10 dígitos']);
             return;
         }
 

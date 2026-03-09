@@ -34,6 +34,9 @@ export const AdminUsersPage: React.FC = () => {
   const [assignTournamentIds, setAssignTournamentIds] = useState<number[]>([]);
   const [assignGroupNumber, setAssignGroupNumber] = useState(1);
 
+  const sanitizePhone = (value: string): string => value.replace(/\D/g, '').slice(0, 10);
+  const isValidPhone = (value: string): boolean => /^\d{1,10}$/.test(value);
+
   const loadUsers = async () => {
     if (!token) {
       setError('Sesión inválida. Inicia sesión nuevamente.');
@@ -75,6 +78,10 @@ export const AdminUsersPage: React.FC = () => {
 
     if (!token) {
       setError('Sesión inválida. Inicia sesión nuevamente.');
+      return;
+    }
+    if (!isValidPhone(phone)) {
+      setError('El teléfono debe contener solo números y máximo 10 dígitos.');
       return;
     }
 
@@ -124,6 +131,10 @@ export const AdminUsersPage: React.FC = () => {
       setError('Usuario inválido');
       return;
     }
+    if (!isValidPhone(editPhone)) {
+      setError('El teléfono debe contener solo números y máximo 10 dígitos.');
+      return;
+    }
 
     try {
       await updateAdminUser(
@@ -166,7 +177,14 @@ export const AdminUsersPage: React.FC = () => {
             </label>
             <label>
               Teléfono
-              <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} required />
+              <input
+                type="tel"
+                value={phone}
+                inputMode="numeric"
+                maxLength={10}
+                onChange={(e) => setPhone(sanitizePhone(e.target.value))}
+                required
+              />
             </label>
             <label>
               Contraseña
@@ -259,7 +277,9 @@ export const AdminUsersPage: React.FC = () => {
                 <input
                   type="tel"
                   value={editPhone}
-                  onChange={(e) => setEditPhone(e.target.value)}
+                  inputMode="numeric"
+                  maxLength={10}
+                  onChange={(e) => setEditPhone(sanitizePhone(e.target.value))}
                   required
                 />
               </label>

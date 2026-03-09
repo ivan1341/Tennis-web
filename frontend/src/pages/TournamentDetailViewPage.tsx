@@ -7,6 +7,7 @@ import {
   getTournamentPlayers,
   getTournamentRounds,
   saveMatchResult,
+  uploadTournamentRegulation,
   type MatchResult,
   type Tournament,
   type TournamentAssignedPlayer,
@@ -360,6 +361,7 @@ export const TournamentDetailViewPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
+  const [uploadingRegulation, setUploadingRegulation] = useState(false);
   const [selectedRound, setSelectedRound] = useState<number | null>(null);
   const [resultDrafts, setResultDrafts] = useState<
     Record<
@@ -615,6 +617,34 @@ export const TournamentDetailViewPage: React.FC = () => {
     }
   };
 
+  const handleRegulationUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!token || !tournament) {
+      setModalError('Sesión inválida. Inicia sesión nuevamente.');
+      return;
+    }
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (file.type !== 'application/pdf') {
+      setModalError('Solo se permiten archivos PDF.');
+      event.target.value = '';
+      return;
+    }
+
+    setUploadingRegulation(true);
+    setSuccess(null);
+    setModalError(null);
+    try {
+      const result = await uploadTournamentRegulation(tournament.id, file, token);
+      setTournament((prev) => (prev ? { ...prev, regulation_pdf_url: result.regulation_pdf_url } : prev));
+      setSuccess('Reglamento actualizado correctamente.');
+    } catch (err) {
+      setModalError((err as Error).message);
+    } finally {
+      setUploadingRegulation(false);
+      event.target.value = '';
+    }
+  };
+
   if (loading) {
     return (
       <div className="app-shell">
@@ -692,6 +722,29 @@ export const TournamentDetailViewPage: React.FC = () => {
               Ronda {selectedRoundData.round_number}: {selectedRoundData.start_date} - {selectedRoundData.end_date}
             </p>
           )}
+          <div className="tournament-regulation-section">
+            <h4>Reglamento del torneo</h4>
+            {tournament.regulation_pdf_url ? (
+              <p>
+                <a href={tournament.regulation_pdf_url} target="_blank" rel="noreferrer">
+                  Ver reglamento PDF
+                </a>
+              </p>
+            ) : (
+              <p className="muted">Aún no hay reglamento cargado.</p>
+            )}
+            {user?.role === 'admin' && (
+              <label className="file-upload-label">
+                Subir o reemplazar PDF
+                <input
+                  type="file"
+                  accept="application/pdf"
+                  disabled={uploadingRegulation}
+                  onChange={handleRegulationUpload}
+                />
+              </label>
+            )}
+          </div>
         </section>
 
         {success && <p className="success-text">{success}</p>}
@@ -844,7 +897,14 @@ export const TournamentDetailViewPage: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {groupMatches.map((match) => {
+                      {groupMatches
+                        .filter((match) => {
+                          if (user?.role === 'admin') return true;
+                          const playerOneId = match.playerOne.id as number;
+                          const playerTwoId = match.playerTwo.id as number;
+                          return user?.id === playerOneId || user?.id === playerTwoId;
+                        })
+                        .map((match) => {
                         const playerOneId = match.playerOne.id as number;
                         const playerTwoId = match.playerTwo.id as number;
                         const existing = getOrientedResult(matchResults, playerOneId, playerTwoId);
@@ -854,49 +914,118 @@ export const TournamentDetailViewPage: React.FC = () => {
                         const draft = getDraftForMatch(playerOneId, playerTwoId);
                         const hasChanges = hasDraftChanges(draft, existing, playerOneId, playerTwoId);
                         const actionLabel = existing !== null && user?.role !== 'admin' ? 'Enviado' : 'Guardar';
+                        const isPlayerView = user?.role !== 'admin' && (user?.id === playerOneId || user?.id === playerTwoId);
+                        const isSwappedForPlayer = isPlayerView && user?.id === playerTwoId;
+
+                        const displayNameOne = isSwappedForPlayer ? match.playerTwo.name : match.playerOne.name;
+                        const displayNameTwo = isSwappedForPlayer ? match.playerOne.name : match.playerTwo.name;
+
+                        const displaySet1One = isSwappedForPlayer ? draft.set1Two : draft.set1One;
+                        const displaySet1Two = isSwappedForPlayer ? draft.set1One : draft.set1Two;
+                        const displaySet2One = isSwappedForPlayer ? draft.set2Two : draft.set2One;
+                        const displaySet2Two = isSwappedForPlayer ? draft.set2One : draft.set2Two;
+                        const displaySet3One = isSwappedForPlayer ? draft.set3Two : draft.set3One;
+                        const displaySet3Two = isSwappedForPlayer ? draft.set3One : draft.set3Two;
+
+                        const displayWalkoverOne = isSwappedForPlayer ? draft.isWalkoverPlayerTwo : draft.isWalkoverPlayerOne;
+                        const displayWalkoverTwo = isSwappedForPlayer ? draft.isWalkoverPlayerOne : draft.isWalkoverPlayerTwo;
+                        const isWalkoverChecked = draft.isWalkoverPlayerOne || draft.isWalkoverPlayerTwo;
+
+                        const setDisplayDraft = (
+                          next: Partial<{
+                            set1One: string;
+                            set1Two: string;
+                            set2One: string;
+                            set2Two: string;
+                            set3One: string;
+                            set3Two: string;
+                            isWalkoverPlayerOne: boolean;
+                            isWalkoverPlayerTwo: boolean;
+                          }>
+                        ) => {
+                          const merged = {
+                            set1One: displaySet1One,
+                            set1Two: displaySet1Two,
+                            set2One: displaySet2One,
+                            set2Two: displaySet2Two,
+                            set3One: displaySet3One,
+                            set3Two: displaySet3Two,
+                            isWalkoverPlayerOne: displayWalkoverOne,
+                            isWalkoverPlayerTwo: displayWalkoverTwo,
+                            ...next
+                          };
+
+                          if (isSwappedForPlayer) {
+                            updateDraft(playerOneId, playerTwoId, {
+                              set1One: merged.set1Two,
+                              set1Two: merged.set1One,
+                              set2One: merged.set2Two,
+                              set2Two: merged.set2One,
+                              set3One: merged.set3Two,
+                              set3Two: merged.set3One,
+                              isWalkoverPlayerOne: merged.isWalkoverPlayerTwo,
+                              isWalkoverPlayerTwo: merged.isWalkoverPlayerOne
+                            });
+                          } else {
+                            updateDraft(playerOneId, playerTwoId, {
+                              set1One: merged.set1One,
+                              set1Two: merged.set1Two,
+                              set2One: merged.set2One,
+                              set2Two: merged.set2Two,
+                              set3One: merged.set3One,
+                              set3Two: merged.set3Two,
+                              isWalkoverPlayerOne: merged.isWalkoverPlayerOne,
+                              isWalkoverPlayerTwo: merged.isWalkoverPlayerTwo
+                            });
+                          }
+                        };
+
+                        const applyWalkover = (markFirst: boolean) => {
+                          if (markFirst) {
+                            setDisplayDraft({
+                              set1One: '0',
+                              set1Two: '6',
+                              set2One: '0',
+                              set2Two: '6',
+                              set3One: '',
+                              set3Two: '',
+                              isWalkoverPlayerOne: true,
+                              isWalkoverPlayerTwo: false
+                            });
+                          } else {
+                            setDisplayDraft({
+                              set1One: '6',
+                              set1Two: '0',
+                              set2One: '6',
+                              set2Two: '0',
+                              set3One: '',
+                              set3Two: '',
+                              isWalkoverPlayerOne: false,
+                              isWalkoverPlayerTwo: true
+                            });
+                          }
+                        };
 
                         return (
                           <tr key={`match-${group.groupNumber}-${playerOneId}-${playerTwoId}`}>
-                            <td>{match.playerOne.name}</td>
-                            <td>{match.playerTwo.name}</td>
+                            <td>{displayNameOne}</td>
+                            <td>{displayNameTwo}</td>
                             <td>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                 <input
                                   type="number"
                                   min={0}
-                                  value={draft.set1One}
-                                  disabled={!canEdit}
-                                  onChange={(event) =>
-                                    updateDraft(playerOneId, playerTwoId, {
-                                      set1One: event.target.value,
-                                      set1Two: draft.set1Two,
-                                      set2One: draft.set2One,
-                                      set2Two: draft.set2Two,
-                                      set3One: draft.set3One,
-                                      set3Two: draft.set3Two,
-                                      isWalkoverPlayerOne: draft.isWalkoverPlayerOne,
-                                      isWalkoverPlayerTwo: draft.isWalkoverPlayerTwo
-                                    })
-                                  }
+                                  value={displaySet1One}
+                                  disabled={!canEdit || isWalkoverChecked}
+                                  onChange={(event) => setDisplayDraft({ set1One: event.target.value })}
                                 />
                                 <span>/</span>
                                 <input
                                   type="number"
                                   min={0}
-                                  value={draft.set1Two}
-                                  disabled={!canEdit}
-                                  onChange={(event) =>
-                                    updateDraft(playerOneId, playerTwoId, {
-                                      set1One: draft.set1One,
-                                      set1Two: event.target.value,
-                                      set2One: draft.set2One,
-                                      set2Two: draft.set2Two,
-                                      set3One: draft.set3One,
-                                      set3Two: draft.set3Two,
-                                      isWalkoverPlayerOne: draft.isWalkoverPlayerOne,
-                                      isWalkoverPlayerTwo: draft.isWalkoverPlayerTwo
-                                    })
-                                  }
+                                  value={displaySet1Two}
+                                  disabled={!canEdit || isWalkoverChecked}
+                                  onChange={(event) => setDisplayDraft({ set1Two: event.target.value })}
                                 />
                               </div>
                             </td>
@@ -905,39 +1034,17 @@ export const TournamentDetailViewPage: React.FC = () => {
                                 <input
                                   type="number"
                                   min={0}
-                                  value={draft.set2One}
-                                  disabled={!canEdit}
-                                  onChange={(event) =>
-                                    updateDraft(playerOneId, playerTwoId, {
-                                      set1One: draft.set1One,
-                                      set1Two: draft.set1Two,
-                                      set2One: event.target.value,
-                                      set2Two: draft.set2Two,
-                                      set3One: draft.set3One,
-                                      set3Two: draft.set3Two,
-                                      isWalkoverPlayerOne: draft.isWalkoverPlayerOne,
-                                      isWalkoverPlayerTwo: draft.isWalkoverPlayerTwo
-                                    })
-                                  }
+                                  value={displaySet2One}
+                                  disabled={!canEdit || isWalkoverChecked}
+                                  onChange={(event) => setDisplayDraft({ set2One: event.target.value })}
                                 />
                                 <span>/</span>
                                 <input
                                   type="number"
                                   min={0}
-                                  value={draft.set2Two}
-                                  disabled={!canEdit}
-                                  onChange={(event) =>
-                                    updateDraft(playerOneId, playerTwoId, {
-                                      set1One: draft.set1One,
-                                      set1Two: draft.set1Two,
-                                      set2One: draft.set2One,
-                                      set2Two: event.target.value,
-                                      set3One: draft.set3One,
-                                      set3Two: draft.set3Two,
-                                      isWalkoverPlayerOne: draft.isWalkoverPlayerOne,
-                                      isWalkoverPlayerTwo: draft.isWalkoverPlayerTwo
-                                    })
-                                  }
+                                  value={displaySet2Two}
+                                  disabled={!canEdit || isWalkoverChecked}
+                                  onChange={(event) => setDisplayDraft({ set2Two: event.target.value })}
                                 />
                               </div>
                             </td>
@@ -946,39 +1053,17 @@ export const TournamentDetailViewPage: React.FC = () => {
                                 <input
                                   type="number"
                                   min={0}
-                                  value={draft.set3One}
-                                  disabled={!canEdit}
-                                  onChange={(event) =>
-                                    updateDraft(playerOneId, playerTwoId, {
-                                      set1One: draft.set1One,
-                                      set1Two: draft.set1Two,
-                                      set2One: draft.set2One,
-                                      set2Two: draft.set2Two,
-                                      set3One: event.target.value,
-                                      set3Two: draft.set3Two,
-                                      isWalkoverPlayerOne: draft.isWalkoverPlayerOne,
-                                      isWalkoverPlayerTwo: draft.isWalkoverPlayerTwo
-                                    })
-                                  }
+                                  value={displaySet3One}
+                                  disabled={!canEdit || isWalkoverChecked}
+                                  onChange={(event) => setDisplayDraft({ set3One: event.target.value })}
                                 />
                                 <span>/</span>
                                 <input
                                   type="number"
                                   min={0}
-                                  value={draft.set3Two}
-                                  disabled={!canEdit}
-                                  onChange={(event) =>
-                                    updateDraft(playerOneId, playerTwoId, {
-                                      set1One: draft.set1One,
-                                      set1Two: draft.set1Two,
-                                      set2One: draft.set2One,
-                                      set2Two: draft.set2Two,
-                                      set3One: draft.set3One,
-                                      set3Two: event.target.value,
-                                      isWalkoverPlayerOne: draft.isWalkoverPlayerOne,
-                                      isWalkoverPlayerTwo: draft.isWalkoverPlayerTwo
-                                    })
-                                  }
+                                  value={displaySet3Two}
+                                  disabled={!canEdit || isWalkoverChecked}
+                                  onChange={(event) => setDisplayDraft({ set3Two: event.target.value })}
                                 />
                               </div>
                             </td>
@@ -986,37 +1071,29 @@ export const TournamentDetailViewPage: React.FC = () => {
                               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                 <input
                                   type="checkbox"
-                                  checked={draft.isWalkoverPlayerOne}
+                                  checked={displayWalkoverOne}
                                   disabled={!canEdit}
                                   onChange={(event) =>
-                                    updateDraft(playerOneId, playerTwoId, {
-                                      set1One: draft.set1One,
-                                      set1Two: draft.set1Two,
-                                      set2One: draft.set2One,
-                                      set2Two: draft.set2Two,
-                                      set3One: draft.set3One,
-                                      set3Two: draft.set3Two,
-                                      isWalkoverPlayerOne: event.target.checked,
-                                      isWalkoverPlayerTwo: event.target.checked ? false : draft.isWalkoverPlayerTwo
-                                    })
+                                    event.target.checked
+                                      ? applyWalkover(true)
+                                      : setDisplayDraft({
+                                          isWalkoverPlayerOne: false,
+                                          isWalkoverPlayerTwo: false
+                                        })
                                   }
                                 />
                                 <span>/</span>
                                 <input
                                   type="checkbox"
-                                  checked={draft.isWalkoverPlayerTwo}
+                                  checked={displayWalkoverTwo}
                                   disabled={!canEdit}
                                   onChange={(event) =>
-                                    updateDraft(playerOneId, playerTwoId, {
-                                      set1One: draft.set1One,
-                                      set1Two: draft.set1Two,
-                                      set2One: draft.set2One,
-                                      set2Two: draft.set2Two,
-                                      set3One: draft.set3One,
-                                      set3Two: draft.set3Two,
-                                      isWalkoverPlayerOne: event.target.checked ? false : draft.isWalkoverPlayerOne,
-                                      isWalkoverPlayerTwo: event.target.checked
-                                    })
+                                    event.target.checked
+                                      ? applyWalkover(false)
+                                      : setDisplayDraft({
+                                          isWalkoverPlayerOne: false,
+                                          isWalkoverPlayerTwo: false
+                                        })
                                   }
                                 />
                               </div>
@@ -1033,7 +1110,7 @@ export const TournamentDetailViewPage: React.FC = () => {
                             </td>
                           </tr>
                         );
-                        
+
                       })}
                     </tbody>
                   </table>
