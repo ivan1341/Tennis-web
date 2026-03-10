@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS tournament_players (
     user_id INT UNSIGNED NOT NULL,
     group_number INT UNSIGNED NOT NULL,
     position_index INT UNSIGNED NOT NULL DEFAULT 1,
+    withdrawn_round_number INT UNSIGNED NULL,
     created_at TIMESTAMP NULL DEFAULT NULL,
     updated_at TIMESTAMP NULL DEFAULT NULL,
     CONSTRAINT fk_tournament_players_tournament_id FOREIGN KEY (tournament_id) REFERENCES tournaments(id) ON DELETE CASCADE,

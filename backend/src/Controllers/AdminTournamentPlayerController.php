@@ -20,6 +20,12 @@ class AdminTournamentPlayerController
         $this->user = $user;
     }
 
+    private function hasWithdrawnRoundColumn(PDO $pdo): bool
+    {
+        $stmt = $pdo->query("SHOW COLUMNS FROM tournament_players LIKE 'withdrawn_round_number'");
+        return (bool)$stmt->fetch(PDO::FETCH_ASSOC);
+    }
+
     /**
      * @param array<string, mixed> $input
      */
@@ -71,11 +77,25 @@ class AdminTournamentPlayerController
             return;
         }
 
-        $stmt = $pdo->prepare(
-            'INSERT INTO tournament_players (tournament_id, user_id, group_number, position_index, created_at, updated_at)
-             VALUES (:tournament_id, :user_id, :group_number, :position_index, NOW(), NOW())
-             ON DUPLICATE KEY UPDATE group_number = VALUES(group_number), position_index = VALUES(position_index), updated_at = NOW()'
-        );
+        $supportsWithdrawnRound = $this->hasWithdrawnRoundColumn($pdo);
+        $stmt = $supportsWithdrawnRound
+            ? $pdo->prepare(
+                'INSERT INTO tournament_players (tournament_id, user_id, group_number, position_index, withdrawn_round_number, created_at, updated_at)
+                 VALUES (:tournament_id, :user_id, :group_number, :position_index, NULL, NOW(), NOW())
+                 ON DUPLICATE KEY UPDATE
+                   group_number = VALUES(group_number),
+                   position_index = VALUES(position_index),
+                   withdrawn_round_number = NULL,
+                   updated_at = NOW()'
+            )
+            : $pdo->prepare(
+                'INSERT INTO tournament_players (tournament_id, user_id, group_number, position_index, created_at, updated_at)
+                 VALUES (:tournament_id, :user_id, :group_number, :position_index, NOW(), NOW())
+                 ON DUPLICATE KEY UPDATE
+                   group_number = VALUES(group_number),
+                   position_index = VALUES(position_index),
+                   updated_at = NOW()'
+            );
 
         foreach ($tournamentIds as $tournamentId) {
             $stmtTournament = $pdo->prepare('SELECT groups_count FROM tournaments WHERE id = :id');
@@ -244,7 +264,17 @@ class AdminTournamentPlayerController
 
         $pdo->beginTransaction();
         try {
-            $stmt = $pdo->prepare('DELETE FROM tournament_players WHERE tournament_id = :tournament_id');
+            $supportsWithdrawnRound = $this->hasWithdrawnRoundColumn($pdo);
+            $stmt = $supportsWithdrawnRound
+                ? $pdo->prepare(
+                    'DELETE FROM tournament_players
+                     WHERE tournament_id = :tournament_id
+                       AND withdrawn_round_number IS NULL'
+                )
+                : $pdo->prepare(
+                    'DELETE FROM tournament_players
+                     WHERE tournament_id = :tournament_id'
+                );
             $stmt->execute(['tournament_id' => $tournamentId]);
 
             if (count($players) > 0) {
@@ -270,10 +300,19 @@ class AdminTournamentPlayerController
                     ];
                 }
 
-                $stmt = $pdo->prepare(
-                    'INSERT INTO tournament_players (tournament_id, user_id, group_number, position_index, created_at, updated_at)
-                     VALUES (:tournament_id, :user_id, :group_number, :position_index, NOW(), NOW())'
-                );
+                $stmt = $supportsWithdrawnRound
+                    ? $pdo->prepare(
+                        'INSERT INTO tournament_players (tournament_id, user_id, group_number, position_index, withdrawn_round_number, created_at, updated_at)
+                         VALUES (:tournament_id, :user_id, :group_number, :position_index, NULL, NOW(), NOW())
+                         ON DUPLICATE KEY UPDATE
+                           group_number = VALUES(group_number),
+                           position_index = VALUES(position_index),
+                           updated_at = NOW()'
+                    )
+                    : $pdo->prepare(
+                        'INSERT INTO tournament_players (tournament_id, user_id, group_number, position_index, created_at, updated_at)
+                         VALUES (:tournament_id, :user_id, :group_number, :position_index, NOW(), NOW())'
+                    );
                 foreach ($normalized as $player) {
                     $stmt->execute([
                         'tournament_id' => $tournamentId,
@@ -289,13 +328,115 @@ class AdminTournamentPlayerController
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
             }
+            error_log('sync participants failed: ' . $e->getMessage());
             http_response_code(500);
-            echo json_encode(['error' => 'No se pudo guardar la distribución de participantes']);
+            echo json_encode([
+                'error' => 'No se pudo guardar la distribución de participantes',
+                'debug' => $e->getMessage(),
+            ]);
             return;
         }
 
         http_response_code(200);
         echo json_encode(['message' => 'Participantes actualizados correctamente']);
+    }
+
+    /**
+     * @param array<string, mixed> $input
+     */
+    public function withdraw(array $input): void
+    {
+        if ($this->user === null || ($this->user['role'] ?? null) !== 'admin') {
+            http_response_code(403);
+            echo json_encode(['error' => 'Solo administradores pueden dar de baja participantes']);
+            return;
+        }
+
+        $tournamentId = (int)($input['tournament_id'] ?? 0);
+        $userId = (int)($input['user_id'] ?? 0);
+        $fromRoundNumber = (int)($input['from_round_number'] ?? 0);
+        if ($tournamentId <= 0 || $userId <= 0 || $fromRoundNumber <= 0) {
+            http_response_code(422);
+            echo json_encode(['error' => 'tournament_id, user_id y from_round_number son obligatorios']);
+            return;
+        }
+
+        $pdo = Database::getConnection();
+        if (!$this->hasWithdrawnRoundColumn($pdo)) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Falta migración en BD: columna withdrawn_round_number en tournament_players']);
+            return;
+        }
+        $roundStmt = $pdo->prepare(
+            'SELECT id
+             FROM tournament_rounds
+             WHERE tournament_id = :tournament_id
+               AND round_number = :round_number'
+        );
+        $roundStmt->execute([
+            'tournament_id' => $tournamentId,
+            'round_number' => $fromRoundNumber,
+        ]);
+        if (!$roundStmt->fetch(PDO::FETCH_ASSOC)) {
+            http_response_code(422);
+            echo json_encode(['error' => 'La ronda seleccionada no existe en el torneo']);
+            return;
+        }
+
+        $playerStmt = $pdo->prepare(
+            'SELECT id
+             FROM tournament_players
+             WHERE tournament_id = :tournament_id
+               AND user_id = :user_id'
+        );
+        $playerStmt->execute([
+            'tournament_id' => $tournamentId,
+            'user_id' => $userId,
+        ]);
+        if (!$playerStmt->fetch(PDO::FETCH_ASSOC)) {
+            http_response_code(404);
+            echo json_encode(['error' => 'El participante no está inscrito en este torneo']);
+            return;
+        }
+
+        $pdo->beginTransaction();
+        try {
+            $updateStmt = $pdo->prepare(
+                'UPDATE tournament_players
+                 SET withdrawn_round_number = :round_number, updated_at = NOW()
+                 WHERE tournament_id = :tournament_id
+                   AND user_id = :user_id'
+            );
+            $updateStmt->execute([
+                'round_number' => $fromRoundNumber,
+                'tournament_id' => $tournamentId,
+                'user_id' => $userId,
+            ]);
+
+            $deleteResultsStmt = $pdo->prepare(
+                'DELETE FROM match_results
+                 WHERE tournament_id = :tournament_id
+                   AND round_number >= :from_round
+                   AND (player_one_id = :user_id OR player_two_id = :user_id)'
+            );
+            $deleteResultsStmt->execute([
+                'tournament_id' => $tournamentId,
+                'from_round' => $fromRoundNumber,
+                'user_id' => $userId,
+            ]);
+
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            http_response_code(500);
+            echo json_encode(['error' => 'No se pudo dar de baja al participante']);
+            return;
+        }
+
+        http_response_code(200);
+        echo json_encode(['message' => 'Participante dado de baja correctamente']);
     }
 }
 

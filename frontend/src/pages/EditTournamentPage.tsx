@@ -3,11 +3,16 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   createTournamentRound,
+  deleteTournament,
+  deleteTournamentRound,
+  getMatchResults,
   getTournamentPlayers,
   getTournamentRounds,
   getTournaments,
   syncTournamentPlayers,
+  withdrawTournamentPlayer,
   updateTournament,
+  type MatchResult,
   type TournamentAssignedPlayer,
   type TournamentRound
 } from '../services/tournamentService';
@@ -23,6 +28,104 @@ interface SnackbarState {
   type: 'error' | 'success';
 }
 
+interface GroupPlayerView {
+  id: number;
+  name: string;
+}
+
+interface PlayerStats {
+  pg: number;
+  pp: number;
+  pts: number;
+  sets: number;
+  games: number;
+}
+
+const getPairKey = (playerOneId: number, playerTwoId: number): string => {
+  const a = Math.min(playerOneId, playerTwoId);
+  const b = Math.max(playerOneId, playerTwoId);
+  return `${a}-${b}`;
+};
+
+const getOrientedResult = (
+  results: MatchResult[],
+  playerOneId: number,
+  playerTwoId: number
+): {
+  set1One: number;
+  set1Two: number;
+  set2One: number;
+  set2Two: number;
+  set3One: number;
+  set3Two: number;
+  walkoverPlayerId: number | null;
+} | null => {
+  const existing = results.find((result) => getPairKey(result.player_one_id, result.player_two_id) === getPairKey(playerOneId, playerTwoId));
+  if (!existing) return null;
+  if (existing.player_one_id === playerOneId) {
+    return {
+      set1One: existing.set1_player_one_games,
+      set1Two: existing.set1_player_two_games,
+      set2One: existing.set2_player_one_games,
+      set2Two: existing.set2_player_two_games,
+      set3One: existing.set3_player_one_games,
+      set3Two: existing.set3_player_two_games,
+      walkoverPlayerId: existing.walkover_player_id
+    };
+  }
+  return {
+    set1One: existing.set1_player_two_games,
+    set1Two: existing.set1_player_one_games,
+    set2One: existing.set2_player_two_games,
+    set2Two: existing.set2_player_one_games,
+    set3One: existing.set3_player_two_games,
+    set3Two: existing.set3_player_one_games,
+    walkoverPlayerId: existing.walkover_player_id
+  };
+};
+
+const summarizeMatch = (result: {
+  set1One: number;
+  set1Two: number;
+  set2One: number;
+  set2Two: number;
+  set3One: number;
+  set3Two: number;
+}): { setsOne: number; setsTwo: number; gamesOne: number; gamesTwo: number } => {
+  const pairs: Array<[number, number]> = [
+    [result.set1One, result.set1Two],
+    [result.set2One, result.set2Two],
+    [result.set3One, result.set3Two]
+  ];
+  let setsOne = 0;
+  let setsTwo = 0;
+  let gamesOne = 0;
+  let gamesTwo = 0;
+  pairs.forEach(([one, two]) => {
+    gamesOne += one;
+    gamesTwo += two;
+    if (one > two) setsOne += 1;
+    if (two > one) setsTwo += 1;
+  });
+  return { setsOne, setsTwo, gamesOne, gamesTwo };
+};
+
+const compareRankedPlayers = (
+  a: { id: number; name: string; stats: PlayerStats },
+  b: { id: number; name: string; stats: PlayerStats },
+  groupResults: MatchResult[]
+): number => {
+  if (b.stats.pts !== a.stats.pts) return b.stats.pts - a.stats.pts;
+  const direct = getOrientedResult(groupResults, a.id, b.id);
+  if (direct) {
+    const summary = summarizeMatch(direct);
+    if (summary.setsOne !== summary.setsTwo) return summary.setsTwo - summary.setsOne;
+  }
+  if (b.stats.sets !== a.stats.sets) return b.stats.sets - a.stats.sets;
+  if (b.stats.games !== a.stats.games) return b.stats.games - a.stats.games;
+  return a.name.localeCompare(b.name, 'es');
+};
+
 export const EditTournamentPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const tournamentId = useMemo(() => Number(id), [id]);
@@ -35,6 +138,9 @@ export const EditTournamentPage: React.FC = () => {
   const [participantsCount, setParticipantsCount] = useState(0);
   const [roundsCount, setRoundsCount] = useState(0);
   const [rounds, setRounds] = useState<TournamentRound[]>([]);
+  const [allPlayers, setAllPlayers] = useState<TournamentAssignedPlayer[]>([]);
+  const [allMatchResults, setAllMatchResults] = useState<MatchResult[]>([]);
+  const [selectedHistoryRound, setSelectedHistoryRound] = useState<number | null>(null);
   const [playersByGroup, setPlayersByGroup] = useState<Record<number, BoardPlayer[]>>({});
   const [savingPlayers, setSavingPlayers] = useState(false);
   const [playersDirty, setPlayersDirty] = useState(false);
@@ -44,6 +150,8 @@ export const EditTournamentPage: React.FC = () => {
   const [newRoundEndDate, setNewRoundEndDate] = useState('');
   const [loading, setLoading] = useState(false);
   const [creatingRound, setCreatingRound] = useState(false);
+  const [deletingRound, setDeletingRound] = useState<number | null>(null);
+  const [deletingTournament, setDeletingTournament] = useState(false);
   const [loadingInitial, setLoadingInitial] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -70,7 +178,7 @@ export const EditTournamentPage: React.FC = () => {
       setError(null);
 
       try {
-        const tournaments = await getTournaments();
+        const tournaments = await getTournaments(token);
         const current = tournaments.find((item) => item.id === tournamentId);
 
         if (!current) {
@@ -78,9 +186,10 @@ export const EditTournamentPage: React.FC = () => {
           return;
         }
 
-        const [roundsData, assignedPlayers] = await Promise.all([
+        const [roundsData, assignedPlayers, matchResults] = await Promise.all([
           getTournamentRounds(current.id),
-          getTournamentPlayers(current.id)
+          getTournamentPlayers(current.id, true),
+          getMatchResults(current.id)
         ]);
 
         setName(current.name);
@@ -89,7 +198,11 @@ export const EditTournamentPage: React.FC = () => {
         setParticipantsCount(current.participants_count);
         setRoundsCount(current.rounds_count);
         setRounds(roundsData);
-        setPlayersByGroup(buildBoardFromAssignments(assignedPlayers, current.groups_count));
+        setSelectedHistoryRound(roundsData.length > 0 ? roundsData[0].round_number : null);
+        setAllPlayers(assignedPlayers);
+        setAllMatchResults(matchResults);
+        const activePlayers = assignedPlayers.filter((item) => item.withdrawn_round_number === null);
+        setPlayersByGroup(buildBoardFromAssignments(activePlayers, current.groups_count));
         setPlayersDirty(false);
       } catch (err) {
         setError((err as Error).message);
@@ -104,9 +217,127 @@ export const EditTournamentPage: React.FC = () => {
       setError('ID de torneo inválido');
       setLoadingInitial(false);
     }
-  }, [tournamentId]);
+  }, [tournamentId, token]);
 
   const groupsCount = useMemo(() => Math.max(1, Math.ceil(participantsCount / 5)), [participantsCount]);
+
+  const historyGroups = useMemo(() => {
+    if (selectedHistoryRound === null) return [] as Array<{ groupNumber: number; players: GroupPlayerView[] }>;
+    const usersById = new Map<number, string>();
+    allPlayers.forEach((player) => usersById.set(player.user_id, player.name));
+
+    const initialAssignments = new Map<number, number[]>();
+    for (let group = 1; group <= groupsCount; group += 1) initialAssignments.set(group, []);
+    allPlayers.forEach((player) => {
+      if (player.group_number >= 1 && player.group_number <= groupsCount) {
+        initialAssignments.get(player.group_number)?.push(player.user_id);
+      }
+    });
+
+    let currentAssignments = new Map<number, number[]>();
+    initialAssignments.forEach((ids, group) => currentAssignments.set(group, [...ids]));
+
+    const isActiveInRound = (playerId: number, roundNumber: number): boolean => {
+      const player = allPlayers.find((item) => item.user_id === playerId);
+      const withdrawn = player?.withdrawn_round_number ?? null;
+      return withdrawn === null || withdrawn > roundNumber;
+    };
+
+    const previousRounds = rounds
+      .filter((round) => round.round_number < selectedHistoryRound)
+      .sort((a, b) => a.round_number - b.round_number);
+
+    previousRounds.forEach((round) => {
+      const upByGroup = new Map<number, number[]>();
+      const downByGroup = new Map<number, number[]>();
+
+      for (let group = 1; group <= groupsCount; group += 1) {
+        const ids = (currentAssignments.get(group) ?? []).filter((id) => isActiveInRound(id, round.round_number));
+        const statsByPlayer = new Map<number, PlayerStats>();
+        ids.forEach((id) => statsByPlayer.set(id, { pg: 0, pp: 0, pts: 0, sets: 0, games: 0 }));
+        const groupResults = allMatchResults.filter(
+          (result) => result.round_number === round.round_number && result.group_number === group
+        );
+
+        for (let i = 0; i < ids.length; i += 1) {
+          for (let j = i + 1; j < ids.length; j += 1) {
+            const one = ids[i];
+            const two = ids[j];
+            const oneStats = statsByPlayer.get(one);
+            const twoStats = statsByPlayer.get(two);
+            if (!oneStats || !twoStats) continue;
+            const result = getOrientedResult(groupResults, one, two);
+            if (!result) {
+              oneStats.pts -= 1;
+              twoStats.pts -= 1;
+              continue;
+            }
+            const summary = summarizeMatch(result);
+            oneStats.sets += summary.setsOne;
+            twoStats.sets += summary.setsTwo;
+            oneStats.games += summary.gamesOne;
+            twoStats.games += summary.gamesTwo;
+            if (summary.setsOne > summary.setsTwo) {
+              oneStats.pg += 1;
+              twoStats.pp += 1;
+              oneStats.pts += 3;
+              twoStats.pts += result.walkoverPlayerId === two ? 0 : 1;
+            } else {
+              twoStats.pg += 1;
+              oneStats.pp += 1;
+              twoStats.pts += 3;
+              oneStats.pts += result.walkoverPlayerId === one ? 0 : 1;
+            }
+          }
+        }
+
+        const ranking = ids
+          .map((id) => ({ id, name: usersById.get(id) ?? `Jugador ${id}`, stats: statsByPlayer.get(id)! }))
+          .sort((a, b) => compareRankedPlayers(a, b, groupResults));
+
+        const topTwo = ranking.slice(0, 2).map((item) => item.id);
+        const bottomTwo = ranking.slice(Math.max(0, ranking.length - 2)).map((item) => item.id);
+        upByGroup.set(group, group === 1 ? [] : topTwo);
+        downByGroup.set(group, group === groupsCount ? [] : bottomTwo);
+      }
+
+      const nextAssignments = new Map<number, number[]>();
+      for (let group = 1; group <= groupsCount; group += 1) {
+        const current = (currentAssignments.get(group) ?? []).filter((id) => isActiveInRound(id, round.round_number));
+        const leavingUp = new Set(upByGroup.get(group) ?? []);
+        const leavingDown = new Set(downByGroup.get(group) ?? []);
+        const staying = current.filter((id) => !leavingUp.has(id) && !leavingDown.has(id));
+        const incomingFromAbove = group > 1 ? downByGroup.get(group - 1) ?? [] : [];
+        const incomingFromBelow = group < groupsCount ? upByGroup.get(group + 1) ?? [] : [];
+        nextAssignments.set(group, [...incomingFromAbove, ...staying, ...incomingFromBelow]);
+      }
+      currentAssignments = nextAssignments;
+    });
+
+    return Array.from({ length: groupsCount }, (_, idx) => {
+      const groupNumber = idx + 1;
+      const ids = (currentAssignments.get(groupNumber) ?? []).filter((id) => isActiveInRound(id, selectedHistoryRound));
+      return {
+        groupNumber,
+        players: ids.map((id) => ({ id, name: usersById.get(id) ?? `Jugador ${id}` }))
+      };
+    });
+  }, [selectedHistoryRound, allPlayers, allMatchResults, rounds, groupsCount]);
+
+  useEffect(() => {
+    if (selectedHistoryRound === null || playersDirty) return;
+    const board: Record<number, BoardPlayer[]> = {};
+    for (let group = 1; group <= groupsCount; group += 1) {
+      board[group] = [];
+    }
+    historyGroups.forEach((group) => {
+      board[group.groupNumber] = group.players.map((player) => ({
+        user_id: player.id,
+        name: player.name
+      }));
+    });
+    setPlayersByGroup(board);
+  }, [selectedHistoryRound, historyGroups, groupsCount, playersDirty]);
 
   useEffect(() => {
     if (!error) return;
@@ -216,11 +447,128 @@ export const EditTournamentPage: React.FC = () => {
         token
       );
       setPlayersDirty(false);
-      setSuccess('Participantes reordenados correctamente.');
+      setSuccess(
+        selectedHistoryRound !== null
+          ? `Distribución guardada para la ronda ${selectedHistoryRound}.`
+          : 'Participantes reordenados correctamente.'
+      );
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setSavingPlayers(false);
+    }
+  };
+
+  const handleChangeHistoryRound = (nextRound: number | null) => {
+    if (playersDirty) {
+      const confirmed = window.confirm(
+        'Tienes cambios sin guardar en la ronda actual. Si cambias de ronda, se perderán. ¿Deseas continuar?'
+      );
+      if (!confirmed) return;
+      setPlayersDirty(false);
+      setPendingRemove(null);
+    }
+    setSelectedHistoryRound(nextRound);
+  };
+
+  const reloadActivePlayers = async () => {
+    const [assignedPlayers, matchResults] = await Promise.all([
+      getTournamentPlayers(tournamentId, true),
+      getMatchResults(tournamentId)
+    ]);
+    setAllPlayers(assignedPlayers);
+    setAllMatchResults(matchResults);
+    const activePlayers = assignedPlayers.filter((item) => item.withdrawn_round_number === null);
+    setPlayersByGroup(buildBoardFromAssignments(activePlayers, groupsCount));
+    setPlayersDirty(false);
+    setPendingRemove(null);
+  };
+
+  const handleWithdrawPlayer = async (player: GroupPlayerView) => {
+    if (!token) {
+      setError('Sesión inválida. Inicia sesión nuevamente.');
+      return;
+    }
+    if (selectedHistoryRound === null) {
+      setError('Selecciona una ronda para dar de baja.');
+      return;
+    }
+    if (playersDirty) {
+      const continueAction = window.confirm(
+        'Tienes cambios de distribución sin guardar. Si continúas, se recargará la lista actual. ¿Deseas continuar?'
+      );
+      if (!continueAction) return;
+    }
+    if (!window.confirm(`¿Dar de baja a ${player.name} desde la ronda ${selectedHistoryRound}?`)) {
+      return;
+    }
+    const existsRound = rounds.some((round) => round.round_number === selectedHistoryRound);
+    if (!existsRound) {
+      setError('La ronda seleccionada ya no existe.');
+      return;
+    }
+
+    try {
+      await withdrawTournamentPlayer(
+        {
+          tournament_id: tournamentId,
+          user_id: player.id,
+          from_round_number: selectedHistoryRound
+        },
+        token
+      );
+      await reloadActivePlayers();
+      setSuccess(`Participante dado de baja desde la ronda ${selectedHistoryRound}.`);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const handleDeleteRound = async (roundNumber: number) => {
+    if (!token) {
+      setError('Sesión inválida. Inicia sesión nuevamente.');
+      return;
+    }
+    if (!window.confirm(`¿Eliminar la ronda ${roundNumber}? Esta acción no se puede deshacer.`)) {
+      return;
+    }
+
+    setDeletingRound(roundNumber);
+    try {
+      await deleteTournamentRound({ tournament_id: tournamentId, round_number: roundNumber }, token);
+      const refreshedRounds = await getTournamentRounds(tournamentId);
+      setRounds(refreshedRounds);
+      setRoundsCount(refreshedRounds.length);
+      setSelectedHistoryRound((prev) => {
+        if (refreshedRounds.length === 0) return null;
+        const stillExists = prev !== null && refreshedRounds.some((round) => round.round_number === prev);
+        return stillExists ? prev : refreshedRounds[0].round_number;
+      });
+      await reloadActivePlayers();
+      setSuccess(`Ronda ${roundNumber} eliminada correctamente.`);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setDeletingRound(null);
+    }
+  };
+
+  const handleDeleteTournament = async () => {
+    if (!token) {
+      setError('Sesión inválida. Inicia sesión nuevamente.');
+      return;
+    }
+    if (!window.confirm(`¿Eliminar el torneo "${name}" completo? Esta acción no se puede deshacer.`)) {
+      return;
+    }
+
+    setDeletingTournament(true);
+    try {
+      await deleteTournament(tournamentId, token);
+      navigate('/tournaments');
+    } catch (err) {
+      setError((err as Error).message);
+      setDeletingTournament(false);
     }
   };
 
@@ -305,6 +653,7 @@ export const EditTournamentPage: React.FC = () => {
       );
       setRoundsCount((prev) => prev + 1);
       setRounds((prev) => [...prev, createdRound].sort((a, b) => a.round_number - b.round_number));
+      setSelectedHistoryRound((prev) => prev ?? createdRound.round_number);
       setNewRoundStartDate('');
       setNewRoundEndDate('');
       setSuccess('Ronda creada correctamente.');
@@ -406,87 +755,148 @@ export const EditTournamentPage: React.FC = () => {
                 <p className="muted">No hay rondas registradas.</p>
               ) : (
                 <ul className="edit-rounds-list">
-                  {rounds.map((round) => (
-                    <li key={round.id}>
-                      Ronda {round.round_number}: {round.start_date} - {round.end_date}
-                    </li>
-                  ))}
+                  {rounds.map((round) => {
+                    const isLastRound = round.round_number === Math.max(...rounds.map((item) => item.round_number));
+                    return (
+                      <li key={round.id} className="edit-round-item">
+                        <span>
+                          Ronda {round.round_number}: {round.start_date} - {round.end_date}
+                        </span>
+                        {isLastRound && (
+                          <button
+                            type="button"
+                            className="icon-btn"
+                            disabled={deletingRound !== null}
+                            onClick={() => void handleDeleteRound(round.round_number)}
+                          >
+                            {deletingRound === round.round_number ? 'Eliminando...' : 'Eliminar'}
+                          </button>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
+              <p className="muted">Solo se puede eliminar la última ronda.</p>
             </div>
 
             <div className="round-create-form">
               <h3>Participantes inscritos (drag and drop)</h3>
-              <p className="muted">Arrastra para mover dentro del grupo o entre grupos. Usa "Dar de baja" para remover y reacomodar.</p>
-              <div className="edit-groups-grid">
-                {Array.from({ length: groupsCount }, (_, idx) => idx + 1).map((groupNumber) => {
-                  const players = playersByGroup[groupNumber] ?? [];
-                  return (
-                    <section
-                      key={groupNumber}
-                      className="edit-group-card"
-                      onDragOver={(event) => event.preventDefault()}
-                      onDrop={() => handleDropPlayer(groupNumber, players.length)}
-                    >
-                      <h4>Grupo {groupNumber}</h4>
-                      {players.length === 0 ? (
-                        <p className="muted">Sin participantes</p>
-                      ) : (
-                        <ol className="edit-group-list">
-                          {players.map((player, index) => (
-                            <li
-                              key={`${player.user_id}-${groupNumber}`}
-                              className="edit-group-item"
-                              draggable
-                              onDragStart={() => setDragging({ fromGroup: groupNumber, fromIndex: index })}
-                              onDragOver={(event) => event.preventDefault()}
-                              onDrop={(event) => {
-                                event.preventDefault();
-                                handleDropPlayer(groupNumber, index);
-                              }}
-                            >
-                              <span>{index + 1}. {player.name}</span>
-                              {pendingRemove?.groupNumber === groupNumber && pendingRemove.index === index ? (
-                                <div className="edit-item-actions">
-                                  <button
-                                    type="button"
-                                    className="icon-btn"
-                                    onClick={() => handleRemovePlayer(groupNumber, index)}
-                                  >
-                                    Confirmar
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="icon-btn"
-                                    onClick={() => setPendingRemove(null)}
-                                  >
-                                    Cancelar
-                                  </button>
-                                </div>
-                              ) : (
-                                <button
-                                  type="button"
-                                  className="icon-btn"
-                                  onClick={() => setPendingRemove({ groupNumber, index })}
-                                >
-                                  Dar de baja
-                                </button>
-                              )}
-                            </li>
-                          ))}
-                        </ol>
-                      )}
-                    </section>
-                  );
-                })}
-              </div>
+              <p className="muted">La distribución manual se edita por ronda: selecciona ronda, arrastra jugadoras y guarda.</p>
+
+              <label>
+                Ver posiciones de la ronda
+                <select
+                  value={selectedHistoryRound ?? ''}
+                  onChange={(event) =>
+                    handleChangeHistoryRound(event.target.value === '' ? null : Number(event.target.value))
+                  }
+                  disabled={rounds.length === 0}
+                >
+                  {rounds.length === 0 ? (
+                    <option value="">Sin rondas</option>
+                  ) : (
+                    rounds.map((round) => (
+                      <option key={round.id} value={round.round_number}>
+                        Ronda {round.round_number}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+
+              {selectedHistoryRound !== null && (
+                <div className="edit-groups-grid">
+                  {Array.from({ length: groupsCount }, (_, idx) => idx + 1).map((groupNumber) => {
+                    const players = playersByGroup[groupNumber] ?? [];
+                    return (
+                      <section
+                        key={groupNumber}
+                        className="edit-group-card"
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={() => handleDropPlayer(groupNumber, players.length)}
+                      >
+                        <h4>Grupo {groupNumber} (Ronda {selectedHistoryRound})</h4>
+                        {players.length === 0 ? (
+                          <p className="muted">Sin participantes</p>
+                        ) : (
+                          <ol className="edit-group-list">
+                            {players.map((player, index) => (
+                              <li
+                                key={`${player.user_id}-${groupNumber}`}
+                                className="edit-group-item"
+                                draggable
+                                onDragStart={() => setDragging({ fromGroup: groupNumber, fromIndex: index })}
+                                onDragOver={(event) => event.preventDefault()}
+                                onDrop={(event) => {
+                                  event.preventDefault();
+                                  handleDropPlayer(groupNumber, index);
+                                }}
+                              >
+                                <span>{index + 1}. {player.name}</span>
+                                {pendingRemove?.groupNumber === groupNumber && pendingRemove.index === index ? (
+                                  <div className="edit-item-actions">
+                                    <button
+                                      type="button"
+                                      className="icon-btn"
+                                      onClick={() => handleRemovePlayer(groupNumber, index)}
+                                    >
+                                      Confirmar
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="icon-btn"
+                                      onClick={() => setPendingRemove(null)}
+                                    >
+                                      Cancelar
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="edit-item-actions">
+                                    <button
+                                      type="button"
+                                      className="icon-btn"
+                                      onClick={() => setPendingRemove({ groupNumber, index })}
+                                    >
+                                      Baja del torneo
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="icon-btn"
+                                      onClick={() => void handleWithdrawPlayer({ id: player.user_id, name: player.name })}
+                                    >
+                                      Baja de la ronda
+                                    </button>
+                                  </div>
+                                )}
+                              </li>
+                            ))}
+                          </ol>
+                        )}
+                      </section>
+                    );
+                  })}
+                </div>
+              )}
               <button
                 type="button"
                 className="secondary-btn"
                 onClick={() => void handleSavePlayers()}
-                disabled={!playersDirty || savingPlayers}
+                disabled={!playersDirty || savingPlayers || selectedHistoryRound === null}
               >
                 {savingPlayers ? 'Guardando participantes...' : 'Guardar distribución de participantes'}
+              </button>
+            </div>
+
+            <div className="round-create-form">
+              <h3>Eliminar torneo</h3>
+              <button
+                type="button"
+                className="secondary-btn"
+                disabled={deletingTournament}
+                onClick={() => void handleDeleteTournament()}
+              >
+                {deletingTournament ? 'Eliminando torneo...' : 'Eliminar torneo'}
               </button>
             </div>
 

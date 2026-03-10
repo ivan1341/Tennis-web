@@ -184,7 +184,7 @@ body {
 
 .form-card {
   width: 100%;
-  max-width: 420px;
+  max-width: 500px;
 }
 
 label {
@@ -494,6 +494,13 @@ a {
 .edit-rounds-list {
   margin: 0.5rem 0 0;
   padding-left: 1.25rem;
+}
+
+.edit-round-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
 }
 
 .edit-groups-grid {

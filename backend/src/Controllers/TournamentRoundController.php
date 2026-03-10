@@ -151,5 +151,106 @@ class TournamentRoundController
             ],
         ]);
     }
+
+    /**
+     * @param array<string, mixed> $input
+     */
+    public function destroy(array $input): void
+    {
+        if ($this->user === null || ($this->user['role'] ?? null) !== 'admin') {
+            http_response_code(403);
+            echo json_encode(['error' => 'Solo administradores pueden eliminar rondas']);
+            return;
+        }
+
+        $tournamentId = (int)($input['tournament_id'] ?? 0);
+        $roundNumber = (int)($input['round_number'] ?? 0);
+        if ($tournamentId <= 0 || $roundNumber <= 0) {
+            http_response_code(422);
+            echo json_encode(['error' => 'tournament_id y round_number son obligatorios']);
+            return;
+        }
+
+        $pdo = Database::getConnection();
+        $maxStmt = $pdo->prepare(
+            'SELECT COALESCE(MAX(round_number), 0) AS max_round
+             FROM tournament_rounds
+             WHERE tournament_id = :tournament_id'
+        );
+        $maxStmt->execute(['tournament_id' => $tournamentId]);
+        $maxRound = (int)($maxStmt->fetch(PDO::FETCH_ASSOC)['max_round'] ?? 0);
+        if ($maxRound === 0) {
+            http_response_code(404);
+            echo json_encode(['error' => 'No hay rondas para este torneo']);
+            return;
+        }
+        if ($roundNumber !== $maxRound) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Solo se puede eliminar la última ronda']);
+            return;
+        }
+
+        $pdo->beginTransaction();
+        try {
+            $deleteRoundStmt = $pdo->prepare(
+                'DELETE FROM tournament_rounds
+                 WHERE tournament_id = :tournament_id
+                   AND round_number = :round_number'
+            );
+            $deleteRoundStmt->execute([
+                'tournament_id' => $tournamentId,
+                'round_number' => $roundNumber,
+            ]);
+            if ($deleteRoundStmt->rowCount() === 0) {
+                $pdo->rollBack();
+                http_response_code(404);
+                echo json_encode(['error' => 'Ronda no encontrada']);
+                return;
+            }
+
+            $deleteResultsStmt = $pdo->prepare(
+                'DELETE FROM match_results
+                 WHERE tournament_id = :tournament_id
+                   AND round_number = :round_number'
+            );
+            $deleteResultsStmt->execute([
+                'tournament_id' => $tournamentId,
+                'round_number' => $roundNumber,
+            ]);
+
+            $clearWithdrawalsStmt = $pdo->prepare(
+                'UPDATE tournament_players
+                 SET withdrawn_round_number = NULL, updated_at = NOW()
+                 WHERE tournament_id = :tournament_id
+                   AND withdrawn_round_number = :round_number'
+            );
+            $clearWithdrawalsStmt->execute([
+                'tournament_id' => $tournamentId,
+                'round_number' => $roundNumber,
+            ]);
+
+            $updateTournamentStmt = $pdo->prepare(
+                'UPDATE tournaments
+                 SET rounds_count = :rounds_count, updated_at = NOW()
+                 WHERE id = :id'
+            );
+            $updateTournamentStmt->execute([
+                'rounds_count' => max(0, $maxRound - 1),
+                'id' => $tournamentId,
+            ]);
+
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            http_response_code(500);
+            echo json_encode(['error' => 'No se pudo eliminar la ronda']);
+            return;
+        }
+
+        http_response_code(200);
+        echo json_encode(['message' => 'Ronda eliminada correctamente']);
+    }
 }
 

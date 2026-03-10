@@ -40,10 +40,13 @@ $router->post('/api/match-results', [App\Controllers\MatchResultController::clas
 $router->get('/api/settings/contact', [App\Controllers\SettingsController::class, 'getContact']);
 $router->post('/api/admin/tournaments', [App\Controllers\TournamentController::class, 'store'], ['admin']);
 $router->put('/api/admin/tournaments', [App\Controllers\TournamentController::class, 'update'], ['admin']);
+$router->delete('/api/admin/tournaments', [App\Controllers\TournamentController::class, 'destroy'], ['admin']);
 $router->post('/api/admin/tournament-rounds', [App\Controllers\TournamentRoundController::class, 'store'], ['admin']);
+$router->delete('/api/admin/tournament-rounds', [App\Controllers\TournamentRoundController::class, 'destroy'], ['admin']);
 $router->post('/api/admin/tournament-regulations', [App\Controllers\TournamentRegulationController::class, 'upload'], ['admin']);
 $router->post('/api/admin/tournament-players', [App\Controllers\AdminTournamentPlayerController::class, 'assignMany'], ['admin']);
 $router->put('/api/admin/tournament-players/sync', [App\Controllers\AdminTournamentPlayerController::class, 'sync'], ['admin']);
+$router->put('/api/admin/tournament-players/withdraw', [App\Controllers\AdminTournamentPlayerController::class, 'withdraw'], ['admin']);
 $router->put('/api/admin/settings/contact', [App\Controllers\SettingsController::class, 'setContact'], ['admin']);
 
 // Dispatch request

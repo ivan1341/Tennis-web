@@ -42,7 +42,8 @@ const normalizeTournamentAssignedPlayer = (item: TournamentAssignedPlayer): Tour
   tournament_id: Number(item.tournament_id),
   user_id: Number(item.user_id),
   group_number: Number(item.group_number),
-  position_index: Number(item.position_index)
+  position_index: Number(item.position_index),
+  withdrawn_round_number: toNullableNumber(item.withdrawn_round_number)
 });
 
 const normalizeTournamentRound = (item: TournamentRound): TournamentRound => ({
@@ -75,6 +76,7 @@ export interface TournamentAssignedPlayer {
   user_id: number;
   group_number: number;
   position_index: number;
+  withdrawn_round_number: number | null;
   name: string;
 }
 
@@ -119,9 +121,15 @@ export async function getTournamentById(id: number, token?: string | null): Prom
   return tournament ?? null;
 }
 
-export async function getTournamentPlayers(tournamentId: number): Promise<TournamentAssignedPlayer[]> {
+export async function getTournamentPlayers(
+  tournamentId: number,
+  includeWithdrawn = false
+): Promise<TournamentAssignedPlayer[]> {
+  const query = includeWithdrawn
+    ? `/api/tournament-players?tournament_id=${tournamentId}&include_withdrawn=1`
+    : `/api/tournament-players?tournament_id=${tournamentId}`;
   const response = await apiFetch<{ players: TournamentAssignedPlayer[] }>(
-    `/api/tournament-players?tournament_id=${tournamentId}`,
+    query,
     { method: 'GET' }
   );
   return response.players.map(normalizeTournamentAssignedPlayer);
@@ -200,6 +208,36 @@ export async function syncTournamentPlayers(input: SyncTournamentPlayersInput, t
     method: 'PUT',
     token,
     body: JSON.stringify(input)
+  });
+}
+
+export async function withdrawTournamentPlayer(
+  input: { tournament_id: number; user_id: number; from_round_number: number },
+  token: string
+): Promise<void> {
+  await apiFetch<{ message: string }>('/api/admin/tournament-players/withdraw', {
+    method: 'PUT',
+    token,
+    body: JSON.stringify(input)
+  });
+}
+
+export async function deleteTournamentRound(
+  input: { tournament_id: number; round_number: number },
+  token: string
+): Promise<void> {
+  await apiFetch<{ message: string }>('/api/admin/tournament-rounds', {
+    method: 'DELETE',
+    token,
+    body: JSON.stringify(input)
+  });
+}
+
+export async function deleteTournament(id: number, token: string): Promise<void> {
+  await apiFetch<{ message: string }>('/api/admin/tournaments', {
+    method: 'DELETE',
+    token,
+    body: JSON.stringify({ id })
   });
 }
 

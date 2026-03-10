@@ -93,6 +93,12 @@ const buildGroupsForSelectedRound = (
   const groupsCount = Math.max(1, tournament.groups_count || 1);
   const usersById = new Map<number, string>();
   assignedPlayers.forEach((player) => usersById.set(player.user_id, player.name));
+  const withdrawnByUserId = new Map<number, number | null>();
+  assignedPlayers.forEach((player) => withdrawnByUserId.set(player.user_id, player.withdrawn_round_number ?? null));
+  const isActiveForRound = (userId: number, roundNumber: number): boolean => {
+    const withdrawnRound = withdrawnByUserId.get(userId) ?? null;
+    return withdrawnRound === null || withdrawnRound > roundNumber;
+  };
 
   const baseAssignments = new Map<number, number[]>();
   for (let group = 1; group <= groupsCount; group += 1) {
@@ -120,7 +126,7 @@ const buildGroupsForSelectedRound = (
     const downByGroup = new Map<number, number[]>();
 
     for (let groupNumber = 1; groupNumber <= groupsCount; groupNumber += 1) {
-      const ids = currentAssignments.get(groupNumber) ?? [];
+      const ids = (currentAssignments.get(groupNumber) ?? []).filter((id) => isActiveForRound(id, round.round_number));
       const groupPlayers: GroupPlayer[] = ids.map((id) => ({ id, name: usersById.get(id) ?? `Jugador ${id}` }));
       const statsByPlayer = new Map<number, PlayerStats>();
       ids.forEach((id) => statsByPlayer.set(id, { pg: 0, pp: 0, pts: 0, pj: 0, sets: 0, games: 0 }));
@@ -178,7 +184,7 @@ const buildGroupsForSelectedRound = (
 
     const nextAssignments = new Map<number, number[]>();
     for (let groupNumber = 1; groupNumber <= groupsCount; groupNumber += 1) {
-      const current = currentAssignments.get(groupNumber) ?? [];
+      const current = (currentAssignments.get(groupNumber) ?? []).filter((id) => isActiveForRound(id, round.round_number));
       const leavingUp = new Set(upByGroup.get(groupNumber) ?? []);
       const leavingDown = new Set(downByGroup.get(groupNumber) ?? []);
       const staying = current.filter((id) => !leavingUp.has(id) && !leavingDown.has(id));
@@ -199,7 +205,8 @@ const buildGroupsForSelectedRound = (
 
   return Array.from({ length: groupsCount }, (_, groupIndex) => {
     const groupNumber = groupIndex + 1;
-    const ids = currentAssignments.get(groupNumber) ?? [];
+    const selectedRoundNumber = selectedRoundData?.round_number ?? Number.MAX_SAFE_INTEGER;
+    const ids = (currentAssignments.get(groupNumber) ?? []).filter((id) => isActiveForRound(id, selectedRoundNumber));
     const players: GroupPlayer[] = ids.map((id) => ({ id, name: usersById.get(id) ?? `Jugador ${id}` }));
     const placeholders = Array.from({ length: Math.max(0, playersPerGroup - players.length) }, () => ({
       id: null,
@@ -391,8 +398,8 @@ export const TournamentDetailViewPage: React.FC = () => {
       setError(null);
       try {
         const [data, players] = await Promise.all([
-          getTournamentById(tournamentId),
-          getTournamentPlayers(tournamentId)
+          getTournamentById(tournamentId, token),
+          getTournamentPlayers(tournamentId, true)
         ]);
         if (!data) {
           setError('Torneo no encontrado');
@@ -413,7 +420,7 @@ export const TournamentDetailViewPage: React.FC = () => {
     };
 
     void load();
-  }, [tournamentId]);
+  }, [tournamentId, token]);
 
   useEffect(() => {
     const loadResults = async () => {

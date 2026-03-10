@@ -77,14 +77,32 @@ class TournamentController
         }
 
         $pdo = Database::getConnection();
-        $stmt = $pdo->prepare(
-            'SELECT tp.tournament_id, tp.user_id, tp.group_number, tp.position_index, u.name
-             FROM tournament_players tp
-             INNER JOIN users u ON u.id = tp.user_id
-             WHERE tp.tournament_id = :tournament_id
-             ORDER BY tp.group_number ASC, tp.position_index ASC, u.name ASC'
-        );
-        $stmt->execute(['tournament_id' => $tournamentId]);
+        $hasWithdrawnColumnStmt = $pdo->query("SHOW COLUMNS FROM tournament_players LIKE 'withdrawn_round_number'");
+        $hasWithdrawnColumn = (bool)$hasWithdrawnColumnStmt->fetch(PDO::FETCH_ASSOC);
+        $includeWithdrawn = (string)($_GET['include_withdrawn'] ?? '0') === '1';
+        if ($hasWithdrawnColumn) {
+            $stmt = $pdo->prepare(
+                'SELECT tp.tournament_id, tp.user_id, tp.group_number, tp.position_index, tp.withdrawn_round_number, u.name
+                 FROM tournament_players tp
+                 INNER JOIN users u ON u.id = tp.user_id
+                 WHERE tp.tournament_id = :tournament_id
+                   AND (:include_withdrawn = 1 OR tp.withdrawn_round_number IS NULL)
+                 ORDER BY tp.group_number ASC, tp.position_index ASC, u.name ASC'
+            );
+            $stmt->execute([
+                'tournament_id' => $tournamentId,
+                'include_withdrawn' => $includeWithdrawn ? 1 : 0,
+            ]);
+        } else {
+            $stmt = $pdo->prepare(
+                'SELECT tp.tournament_id, tp.user_id, tp.group_number, tp.position_index, NULL AS withdrawn_round_number, u.name
+                 FROM tournament_players tp
+                 INNER JOIN users u ON u.id = tp.user_id
+                 WHERE tp.tournament_id = :tournament_id
+                 ORDER BY tp.group_number ASC, tp.position_index ASC, u.name ASC'
+            );
+            $stmt->execute(['tournament_id' => $tournamentId]);
+        }
 
         http_response_code(200);
         echo json_encode(['players' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
@@ -265,6 +283,37 @@ class TournamentController
                 'rounds_count' => $rounds,
             ],
         ]);
+    }
+
+    /**
+     * @param array<string, mixed> $input
+     */
+    public function destroy(array $input): void
+    {
+        if ($this->user === null || ($this->user['role'] ?? null) !== 'admin') {
+            http_response_code(403);
+            echo json_encode(['error' => 'Solo administradores pueden eliminar torneos']);
+            return;
+        }
+
+        $id = (int)($input['id'] ?? 0);
+        if ($id <= 0) {
+            http_response_code(422);
+            echo json_encode(['error' => 'id es obligatorio']);
+            return;
+        }
+
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare('DELETE FROM tournaments WHERE id = :id');
+        $stmt->execute(['id' => $id]);
+        if ($stmt->rowCount() === 0) {
+            http_response_code(404);
+            echo json_encode(['error' => 'Torneo no encontrado']);
+            return;
+        }
+
+        http_response_code(200);
+        echo json_encode(['message' => 'Torneo eliminado correctamente']);
     }
 }
 

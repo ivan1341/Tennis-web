@@ -9,8 +9,8 @@ services:
       - ./backend:/var/www/html
     environment:
       DB_HOST: db
-      DB_NAME: tennis_web
-      DB_USER: app_user
+      DB_NAME: clubmundetprod
+      DB_USER: app_clubm
       DB_PASS: app_password
     depends_on:
       db:
@@ -23,8 +23,8 @@ services:
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: tennis_web
-      MYSQL_USER: app_user
+      MYSQL_DATABASE: clubmundetprod
+      MYSQL_USER: app_clubm
       MYSQL_PASSWORD: app_password
     volumes:
       - db_data:/var/lib/mysql
